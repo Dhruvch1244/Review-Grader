@@ -318,7 +318,9 @@ function TeamRoster({
             />
             <Select value={team.id} onValueChange={(v) => v && moveStudent(s.id, v)}>
               <SelectTrigger size="sm" className="w-[92px] text-xs">
-                <SelectValue />
+                <SelectValue>
+                  {(v: string) => classData.teams.find((t) => t.id === v)?.name ?? v}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {classData.teams.map((t) => (

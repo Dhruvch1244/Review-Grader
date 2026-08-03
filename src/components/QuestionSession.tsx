@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { apiGet, apiWrite } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { GeneratedQuestion } from "@/lib/question-generator";
 import type { QuestionRating, QuestionRatingRow } from "@/lib/types";
 
@@ -12,6 +15,12 @@ const RATING_OPTIONS: { value: QuestionRating; label: string }[] = [
   { value: "middle", label: "Middle" },
   { value: "answered", label: "Answered" },
 ];
+
+const RATING_DOT: Record<QuestionRating, string> = {
+  unanswered: "bg-destructive",
+  middle: "bg-amber-500",
+  answered: "bg-emerald-500",
+};
 
 export default function QuestionSession({
   studentId,
@@ -29,6 +38,16 @@ export default function QuestionSession({
   const [loading, setLoading] = useState(true);
   const [questions, setQuestions] = useState<GeneratedQuestion[]>([]);
   const [ratings, setRatings] = useState<Record<string, QuestionRating>>({});
+  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
+
+  function toggleOpen(criterionId: string) {
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(criterionId)) next.delete(criterionId);
+      else next.add(criterionId);
+      return next;
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -73,8 +92,7 @@ export default function QuestionSession({
     setLoading(false);
   }
 
-  async function rate(criterionId: string, rating: QuestionRating) {
-    const next = ratings[criterionId] === rating ? null : rating;
+  async function setRating(criterionId: string, next: QuestionRating | null) {
     setRatings((prev) => {
       const copy = { ...prev };
       if (next) copy[criterionId] = next;
@@ -88,6 +106,11 @@ export default function QuestionSession({
       `rating-${studentId}-${reviewId}-${criterionId}`
     );
     onDeltaChange(result.delta);
+  }
+
+  function rate(criterionId: string, rating: QuestionRating) {
+    const next = ratings[criterionId] === rating ? null : rating;
+    setRating(criterionId, next);
   }
 
   function copyToNotes() {
@@ -122,40 +145,69 @@ export default function QuestionSession({
       )}
 
       {questions.length > 0 && (
-        <ol className="space-y-3 rounded-lg border p-3 bg-muted/30">
-          {questions.map((q, i) => (
-            <li key={`${q.criterionId}-${i}`} className="text-xs border-t pt-2.5 first:border-t-0 first:pt-0">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1">
-                  <p className="font-medium text-foreground">
-                    <Badge variant={q.category === "Security" ? "secondary" : "outline"} className="mr-1.5 h-4 px-1 text-[9px] uppercase tracking-wide align-middle">
-                      {q.category}
+        <ol className="rounded-lg border divide-y bg-muted/30 overflow-hidden">
+          {questions.map((q, i) => {
+            const isOpen = openIds.has(q.criterionId);
+            const rating = ratings[q.criterionId];
+            return (
+              <li key={`${q.criterionId}-${i}`} className="text-xs">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => toggleOpen(q.criterionId)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleOpen(q.criterionId);
+                    }
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 cursor-pointer hover:bg-muted/60 transition-colors"
+                >
+                  <Checkbox
+                    checked={rating === "answered"}
+                    onClick={(e) => e.stopPropagation()}
+                    onCheckedChange={(checked) => setRating(q.criterionId, checked ? "answered" : null)}
+                    aria-label="Mark question complete"
+                  />
+                  <Badge variant={q.category === "Security" ? "secondary" : "outline"} className="h-4 px-1 text-[9px] uppercase tracking-wide shrink-0">
+                    {q.category}
+                  </Badge>
+                  {q.weak && (
+                    <Badge variant="destructive" className="h-4 px-1 text-[9px] uppercase tracking-wide shrink-0">
+                      weak
                     </Badge>
-                    {q.weak && (
-                      <Badge variant="destructive" className="mr-1.5 h-4 px-1 text-[9px] uppercase tracking-wide align-middle">
-                        weak spot
-                      </Badge>
-                    )}
-                    {q.question}
-                  </p>
-                  <p className="text-muted-foreground mt-1">Listen for: {q.guidance}</p>
+                  )}
+                  <span className="flex-1 truncate font-medium text-foreground">{q.question}</span>
+                  {rating && (
+                    <span className={cn("size-1.5 rounded-full shrink-0", RATING_DOT[rating])} title={rating} />
+                  )}
+                  {isOpen ? (
+                    <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
+                  ) : (
+                    <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
+                  )}
                 </div>
-                <div className="flex gap-1 shrink-0">
-                  {RATING_OPTIONS.map((opt) => (
-                    <Button
-                      key={opt.value}
-                      size="sm"
-                      variant={ratings[q.criterionId] === opt.value ? "default" : "outline"}
-                      className="h-6 px-1.5 text-[10px]"
-                      onClick={() => rate(q.criterionId, opt.value)}
-                    >
-                      {opt.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            </li>
-          ))}
+                {isOpen && (
+                  <div className="px-2.5 pb-2.5 pt-0.5 space-y-2">
+                    <p className="text-muted-foreground">Listen for: {q.guidance}</p>
+                    <div className="flex gap-1">
+                      {RATING_OPTIONS.map((opt) => (
+                        <Button
+                          key={opt.value}
+                          size="sm"
+                          variant={rating === opt.value ? "default" : "outline"}
+                          className="h-6 px-1.5 text-[10px]"
+                          onClick={() => rate(q.criterionId, opt.value)}
+                        >
+                          {opt.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ol>
       )}
     </div>
