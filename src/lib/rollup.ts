@@ -37,10 +37,9 @@ export function buildSummaryRows(
   return individualScores.map((ind) => {
     const key = `${ind.Class}::${ind.Team}::${ind.ReviewNumber}`;
     const teamAvg = teamAvgByKey.get(key) ?? null;
-    const finalScore =
-      teamAvg !== null && ind.Delta !== null && ind.Delta !== undefined
-        ? Math.round((teamAvg + ind.Delta) * 100) / 100
-        : teamAvg;
+    const delta = ind.Delta ?? 0;
+    const grace = ind.Grace ?? 0;
+    const finalScore = teamAvg !== null ? Math.round((teamAvg + delta + grace) * 100) / 100 : null;
     return {
       Class: ind.Class,
       Team: ind.Team,
@@ -49,6 +48,7 @@ export function buildSummaryRows(
       ReviewLabel: ind.ReviewLabel,
       TeamAvg: teamAvg,
       Delta: ind.Delta,
+      Grace: ind.Grace,
       FinalScore: finalScore,
     };
   });

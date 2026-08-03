@@ -30,9 +30,9 @@ export async function apiGet<T>(url: string): Promise<T | undefined> {
  * i.e. offline edits win once they sync.
  */
 export async function apiWrite<T>(
-  method: "POST" | "PUT" | "PATCH",
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
   url: string,
-  body: unknown,
+  body?: unknown,
   dedupeKey?: string
 ): Promise<T> {
   try {

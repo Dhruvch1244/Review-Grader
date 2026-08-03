@@ -3,6 +3,8 @@
 import { useState } from "react";
 import * as XLSX from "xlsx";
 import { buildSummaryRows, overallByStudent } from "@/lib/rollup";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import type {
   RosterExportRow,
   TeamScoreExportRow,
@@ -81,76 +83,72 @@ export default function MergePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">Merge reviewer exports</h1>
-        <p className="text-sm text-black/60 dark:text-white/60 mt-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Merge reviewer exports</h1>
+        <p className="text-sm text-muted-foreground mt-1">
           Upload the .xlsx each reviewer exported (one per class, or several from the same
           class over time) and get one consolidated master workbook. Runs entirely in your
           browser - nothing is uploaded anywhere.
         </p>
       </div>
 
-      <div className="border border-dashed border-black/20 dark:border-white/25 rounded-lg p-6 text-center">
-        <input
-          type="file"
-          accept=".xlsx"
-          multiple
-          onChange={(e) => handleFiles(e.target.files)}
-          className="text-sm"
-        />
-        {fileNames.length > 0 && (
-          <p className="text-xs text-black/50 mt-3">Loaded: {fileNames.join(", ")}</p>
-        )}
-        {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
-      </div>
+      <Card className="border-dashed">
+        <CardContent className="text-center py-8">
+          <input
+            type="file"
+            accept=".xlsx"
+            multiple
+            onChange={(e) => handleFiles(e.target.files)}
+            className="text-sm"
+          />
+          {fileNames.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-3">Loaded: {fileNames.join(", ")}</p>
+          )}
+          {error && <p className="text-xs text-destructive mt-2">{error}</p>}
+        </CardContent>
+      </Card>
 
       {overall.length > 0 && (
         <>
           <div className="flex items-center justify-between">
-            <p className="text-sm text-black/60 dark:text-white/60">
+            <p className="text-sm text-muted-foreground">
               {overall.length} students across {new Set(overall.map((r) => r.Class)).size} class(es)
             </p>
             <div className="flex gap-2">
-              <button
-                onClick={reset}
-                className="text-sm border border-black/15 dark:border-white/20 px-3 py-1.5 rounded-md"
-              >
+              <Button variant="outline" onClick={reset}>
                 Clear
-              </button>
-              <button
-                onClick={downloadMerged}
-                className="text-sm bg-black text-white dark:bg-white dark:text-black px-3 py-1.5 rounded-md"
-              >
-                Download master .xlsx
-              </button>
+              </Button>
+              <Button onClick={downloadMerged}>Download master .xlsx</Button>
             </div>
           </div>
 
-          <div className="overflow-x-auto border border-black/10 dark:border-white/10 rounded-lg">
-            <table className="w-full text-sm">
-              <thead className="bg-black/5 dark:bg-white/5">
-                <tr>
-                  <th className="text-left px-3 py-2 font-medium">Class</th>
-                  <th className="text-left px-3 py-2 font-medium">Team</th>
-                  <th className="text-left px-3 py-2 font-medium">Student</th>
-                  <th className="text-right px-3 py-2 font-medium">Reviews scored</th>
-                  <th className="text-right px-3 py-2 font-medium">Overall final score</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overall.map((row) => (
-                  <tr key={`${row.Class}-${row.Team}-${row.Student}`} className="border-t border-black/5 dark:border-white/10">
-                    <td className="px-3 py-2">{row.Class}</td>
-                    <td className="px-3 py-2">{row.Team}</td>
-                    <td className="px-3 py-2">{row.Student}</td>
-                    <td className="px-3 py-2 text-right">{row.ReviewsScored}/4</td>
-                    <td className="px-3 py-2 text-right font-medium">
-                      {row.OverallFinalScore ?? "—"}
-                    </td>
+          <Card className="overflow-hidden py-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium">Class</th>
+                    <th className="text-left px-3 py-2 font-medium">Team</th>
+                    <th className="text-left px-3 py-2 font-medium">Student</th>
+                    <th className="text-right px-3 py-2 font-medium">Reviews scored</th>
+                    <th className="text-right px-3 py-2 font-medium">Overall final score</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {overall.map((row) => (
+                    <tr key={`${row.Class}-${row.Team}-${row.Student}`} className="border-t">
+                      <td className="px-3 py-2">{row.Class}</td>
+                      <td className="px-3 py-2">{row.Team}</td>
+                      <td className="px-3 py-2">{row.Student}</td>
+                      <td className="px-3 py-2 text-right">{row.ReviewsScored}/4</td>
+                      <td className="px-3 py-2 text-right font-medium">
+                        {row.OverallFinalScore ?? "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         </>
       )}
     </div>

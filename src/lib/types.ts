@@ -13,6 +13,16 @@ export interface CriterionDef {
   category: Category;
   text: string;
   order: number;
+  guidance?: string | null;
+}
+
+export type QuestionRating = "answered" | "middle" | "unanswered";
+
+export interface QuestionVariant {
+  id: string;
+  criterionId: string;
+  text: string;
+  order: number;
 }
 
 export interface ClassRow {
@@ -53,6 +63,37 @@ export interface IndividualScoreRow {
   review_id: string;
   delta: number | null;
   notes: string | null;
+  grace?: number | null;
+  updated_at: string;
+}
+
+export interface QuestionRatingRow {
+  id: string;
+  student_id: string;
+  review_id: string;
+  criterion_id: string;
+  rating: QuestionRating;
+  updated_at: string;
+}
+
+export interface QuestionSessionRow {
+  id: string;
+  student_id: string;
+  review_id: string;
+  criterion_ids: string[];
+  created_at: string;
+}
+
+export type ReviewSessionPhase = "idle" | "presentation" | "individual" | "final" | "done";
+
+export interface ReviewSessionRow {
+  id: string;
+  team_id: string;
+  review_id: string;
+  phase: ReviewSessionPhase;
+  timer_started_at: string | null;
+  timer_duration_seconds: number;
+  current_student_index: number;
   updated_at: string;
 }
 
@@ -92,6 +133,7 @@ export interface IndividualScoreExportRow {
   ReviewNumber: number;
   ReviewLabel: string;
   Delta: number | null;
+  Grace: number | null;
   Notes: string | null;
 }
 
@@ -103,5 +145,6 @@ export interface SummaryExportRow {
   ReviewLabel: string;
   TeamAvg: number | null;
   Delta: number | null;
+  Grace: number | null;
   FinalScore: number | null;
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { startAutoSync, syncEvents, getPendingCount, flushQueue } from "@/lib/api-client";
+import { Badge } from "@/components/ui/badge";
 
 export default function SyncStatus() {
   // Start "online" on both server and client's first render so hydration
@@ -34,22 +35,23 @@ export default function SyncStatus() {
 
   if (online && pending === 0) {
     return (
-      <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1 inline-flex items-center gap-1.5">
+      <Badge variant="outline" className="gap-1.5 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/40">
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
         Synced
-      </div>
+      </Badge>
     );
   }
 
   return (
     <button
       onClick={() => void flushQueue().then((r) => setPending(r.remaining))}
-      className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1 inline-flex items-center gap-1.5 hover:bg-amber-100"
       title="Click to retry syncing now"
     >
-      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-      {online ? "Online" : "Offline"}
-      {pending > 0 ? ` · ${pending} pending sync` : ""}
+      <Badge variant="outline" className="gap-1.5 text-amber-800 dark:text-amber-400 border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 cursor-pointer">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+        {online ? "Online" : "Offline"}
+        {pending > 0 ? ` · ${pending} pending` : ""}
+      </Badge>
     </button>
   );
 }
