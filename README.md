@@ -55,11 +55,16 @@ landing page.
 
 ### Windows release (no Node/npm install needed)
 
-Every GitHub Release gets a `review-grader-windows.zip` built by
-`.github/workflows/release.yml`: it builds the Next.js standalone bundle on
-`windows-latest` (so `better-sqlite3`'s native binary is compiled for
-Windows), bundles a portable Node.js runtime and `scripts/windows/start.bat`
-alongside it, and zips the lot. For someone who just wants to run it:
+`.github/workflows/release.yml` builds a `review-grader-windows.zip`: it
+compiles the Next.js standalone bundle on `windows-latest` (so
+`better-sqlite3`'s native binary is built for Windows), bundles a portable
+Node.js runtime and `scripts/windows/start.bat` alongside it, and zips the
+lot. It runs whenever `main` is pushed/merged into the `release` branch
+(tags the zip `v<package.json version>` and attaches it to a GitHub
+Release), and also on publishing a Release manually or via
+`workflow_dispatch`. To cut a new build: merge `main` into `release` and
+push - no manual release-drafting needed. For someone who just wants to
+run it:
 
 1. Download and unzip `review-grader-windows.zip` from the
    [Releases](../../releases) page.
