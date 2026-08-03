@@ -1,6 +1,8 @@
 name: Windows Release Build
 
 on:
+  push:
+    branches: ["release"]
   release:
     types: [published]
   workflow_dispatch: {}
@@ -19,6 +21,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Read package version
+        id: pkg
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          echo "version=$version" >> $env:GITHUB_OUTPUT
 
       - name: Install dependencies
         run: npm ci
@@ -67,9 +76,14 @@ jobs:
         run: Compress-Archive -Path release/* -DestinationPath review-grader-windows.zip
 
       - name: Attach to the GitHub Release
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/release')
         uses: softprops/action-gh-release@v2
         with:
+          # A manually-published Release already has its own tag - only
+          # push-to-release-branch needs one derived from package.json.
+          tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || format('v{0}', steps.pkg.outputs.version) }}
+          name: ${{ github.event_name == 'release' && github.event.release.name || format('Review Grader v{0}', steps.pkg.outputs.version) }}
+          make_latest: true
           files: review-grader-windows.zip
 
       - name: Upload as a workflow artifact
