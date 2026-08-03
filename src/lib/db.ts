@@ -1,9 +1,16 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { REVIEWS, CRITERIA } from "./rubric-seed";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+// Deliberately outside the project directory: every score write touches
+// this file (WAL mode), and `next dev`'s file watcher treats any change
+// under the project root as a source change - if the DB lived in-tree,
+// every save would trigger a Fast Refresh reload of whatever page was
+// open, which shows up as the browser re-fetching that route in a loop.
+// Override with REVIEW_GRADER_DATA_DIR if you want a specific location.
+const DATA_DIR = process.env.REVIEW_GRADER_DATA_DIR || path.join(os.homedir(), ".review-grader");
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const DB_PATH = path.join(DATA_DIR, "review-grader.db");
 

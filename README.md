@@ -17,11 +17,16 @@ drops mid-review.
   criteria during their presentation; each student then gets a -2..+2 delta
   during their individual Q&A slot. A student's final score for a review is
   `team average + their delta`.
-- **Data**: stored locally in SQLite (`data/review-grader.db`, gitignored -
-  each host machine keeps its own). Client writes go through an IndexedDB
-  queue first, so scoring keeps working offline and syncs automatically once
-  the connection comes back (offline edits always win on sync - see
-  `src/lib/api-client.ts`).
+- **Data**: stored locally in SQLite at `~/.review-grader/review-grader.db`
+  (each host machine keeps its own) - deliberately outside the project
+  folder, so `next dev`'s file watcher doesn't treat every score save as a
+  source change and reload the page. Override the location with
+  `REVIEW_GRADER_DATA_DIR=/some/path`. **To reset a class's data**, stop the
+  server and delete that directory (`rm -rf ~/.review-grader`), then
+  restart - the rubric reseeds automatically. Client writes also go through
+  an IndexedDB queue first, so scoring keeps working offline and syncs
+  automatically once the connection comes back (offline edits always win on
+  sync - see `src/lib/api-client.ts`).
 
 ## Running it
 
