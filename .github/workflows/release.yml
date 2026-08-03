@@ -12,7 +12,13 @@ permissions:
 
 jobs:
   build-windows-zip:
-    runs-on: windows-latest
+    # Pinned rather than windows-latest: that label currently points at an
+    # image bundling a newer Visual Studio release than the node-gyp
+    # version shipped with Node 22 knows how to detect, which breaks
+    # compiling better-sqlite3's native binary (node-gyp finds VS but logs
+    # "unknown version \"undefined\"" and gives up). windows-2022 ships the
+    # VS2022 toolchain node-gyp actually supports.
+    runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v4
