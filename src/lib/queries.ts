@@ -39,7 +39,7 @@ export function getClassData(classId: string): ClassData | null {
 
 export function createClassWithTeams(input: {
   name: string;
-  instructorName?: string;
+  reviewerName?: string;
   headcount: number;
   teamSize?: number;
 }): ClassData {
@@ -49,7 +49,7 @@ export function createClassWithTeams(input: {
   const now = new Date().toISOString();
 
   const insertClass = db.prepare(
-    "INSERT INTO classes (id, name, instructor_name, headcount, created_at) VALUES (?, ?, ?, ?, ?)"
+    "INSERT INTO classes (id, name, reviewer_name, headcount, created_at) VALUES (?, ?, ?, ?, ?)"
   );
   const insertTeam = db.prepare(
     "INSERT INTO teams (id, class_id, number, name) VALUES (?, ?, ?, ?)"
@@ -59,7 +59,7 @@ export function createClassWithTeams(input: {
   );
 
   const tx = db.transaction(() => {
-    insertClass.run(classId, input.name, input.instructorName ?? null, input.headcount, now);
+    insertClass.run(classId, input.name, input.reviewerName ?? null, input.headcount, now);
     const teamCount = Math.max(1, Math.ceil(input.headcount / teamSize));
     let remaining = input.headcount;
     for (let i = 0; i < teamCount; i++) {
@@ -81,23 +81,57 @@ export function renameStudent(studentId: string, name: string): void {
   getDb().prepare("UPDATE students SET name = ? WHERE id = ?").run(name, studentId);
 }
 
-export function bulkAutofillTeamStudents(teamId: string, names: string[]): TeamWithStudents {
+/**
+ * One-shot roster import: fills every team in the class sequentially
+ * (Team 1's slots, then Team 2's, ...) from a single flat name list, so a
+ * reviewer can paste the whole class roster once and apply it in one go.
+ * Leftover names beyond the class's total slots are ignored; the caller
+ * surfaces the counts.
+ */
+export function bulkAutofillClass(
+  classId: string,
+  names: string[]
+): { classData: ClassData; applied: number; totalSlots: number } {
   const db = getDb();
-  const students = db
-    .prepare("SELECT * FROM students WHERE team_id = ? ORDER BY slot_index")
-    .all(teamId) as StudentRow[];
+  const teams = db
+    .prepare("SELECT * FROM teams WHERE class_id = ? ORDER BY number")
+    .all(classId) as TeamRow[];
   const update = db.prepare("UPDATE students SET name = ? WHERE id = ?");
+  let applied = 0;
+  let totalSlots = 0;
   const tx = db.transaction(() => {
-    students.forEach((s, idx) => {
-      if (names[idx]) update.run(names[idx].trim(), s.id);
-    });
+    let idx = 0;
+    for (const team of teams) {
+      const students = db
+        .prepare("SELECT * FROM students WHERE team_id = ? ORDER BY slot_index")
+        .all(team.id) as StudentRow[];
+      for (const s of students) {
+        totalSlots++;
+        const name = names[idx]?.trim();
+        if (name) {
+          update.run(name, s.id);
+          applied++;
+        }
+        idx++;
+      }
+    }
   });
   tx();
-  const team = db.prepare("SELECT * FROM teams WHERE id = ?").get(teamId) as TeamRow;
-  const refreshed = db
-    .prepare("SELECT * FROM students WHERE team_id = ? ORDER BY slot_index")
-    .all(teamId) as StudentRow[];
-  return { ...team, students: refreshed };
+  return { classData: getClassData(classId)!, applied, totalSlots };
+}
+
+export function reassignStudentTeam(studentId: string, teamId: string): void {
+  const db = getDb();
+  const maxSlot = (
+    db.prepare("SELECT MAX(slot_index) as m FROM students WHERE team_id = ?").get(teamId) as {
+      m: number | null;
+    }
+  ).m;
+  db.prepare("UPDATE students SET team_id = ?, slot_index = ? WHERE id = ?").run(
+    teamId,
+    (maxSlot ?? 0) + 1,
+    studentId
+  );
 }
 
 export function listReviews(): (ReviewDef & { criteria: CriterionDef[] })[] {

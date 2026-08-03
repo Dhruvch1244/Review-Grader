@@ -83,7 +83,7 @@ export default function MergePage() {
       <div>
         <h1 className="text-xl font-semibold">Merge reviewer exports</h1>
         <p className="text-sm text-black/60 dark:text-white/60 mt-1">
-          Upload the .xlsx each instructor exported (one per class, or several from the same
+          Upload the .xlsx each reviewer exported (one per class, or several from the same
           class over time) and get one consolidated master workbook. Runs entirely in your
           browser - nothing is uploaded anywhere.
         </p>

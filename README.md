@@ -38,15 +38,27 @@ while iterating locally.
 ## Workflow
 
 1. **Setup** (`/setup`) - add each class with its headcount; teams of 6 are
-   generated automatically. Paste a name list per team to autofill the
-   roster whenever you have it (real names aren't required to start).
+   generated automatically. Paste the whole class roster in one go (one name
+   per line) and hit "Apply to all teams" to fill every team's slots in
+   order - no need to open each team separately. A per-student dropdown lets
+   you move someone to a different team afterwards.
 2. **Score** (`/score/[classId]`) - pick a review, pick a team, score the
    rubric criteria live, then score each student's individual delta during
-   their slot. Everything autosaves.
-3. **Export** - each class's data exports to `.xlsx` (Panelists, Roster,
+   their slot. Everything autosaves. Each student also has a **"Simulate
+   session"** button that generates 5 questions for their individual Q&A,
+   weighted toward whatever their team scored low or left unscored - each
+   question comes with a short reviewer-facing note on what a strong answer
+   covers (see `src/lib/question-bank.ts` and `question-generator.ts`).
+3. **Stats** (`/stats/[classId]`) - a dashboard of team and student
+   comparisons: team averages, trend across R1-R4, a class-wide Build vs.
+   Security breakdown, a student leaderboard, score distribution, a
+   criteria x team heatmap, a per-team radar of criteria strengths/gaps, a
+   team-baseline-vs-individual-delta scatter, and a raw data table. Colors
+   follow the dataviz skill's validated palette (`src/lib/chart-colors.ts`).
+4. **Export** - each class's data exports to `.xlsx` (Panelists, Roster,
    TeamScores, IndividualScores, Summary, Overall sheets) from the class
    list or the score page.
-4. **Merge** (`/merge`) - once all classes/instructors are done, upload
+5. **Merge** (`/merge`) - once all classes/reviewers are done, upload
    everyone's exported `.xlsx` files here to get one consolidated master
    workbook with per-team and per-student scores across all 4 reviews. Runs
    entirely in the browser - nothing is uploaded to a server.

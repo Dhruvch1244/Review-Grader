@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
   }
   const data = createClassWithTeams({
     name: body.name,
-    instructorName: body.instructorName,
+    reviewerName: body.reviewerName,
     headcount: Number(body.headcount),
     teamSize: body.teamSize ? Number(body.teamSize) : undefined,
   });

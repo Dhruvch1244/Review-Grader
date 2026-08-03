@@ -43,13 +43,16 @@ export default function HomePage() {
               <div>
                 <p className="font-medium">{c.name}</p>
                 <p className="text-xs text-black/50 dark:text-white/50">
-                  {c.instructor_name ? `${c.instructor_name} · ` : ""}
+                  {c.reviewer_name ? `${c.reviewer_name} · ` : ""}
                   {c.headcount} students
                 </p>
               </div>
               <div className="flex items-center gap-3 text-sm">
                 <Link href={`/score/${c.id}`} className="text-blue-600 dark:text-blue-400 hover:underline">
                   Score
+                </Link>
+                <Link href={`/stats/${c.id}`} className="text-blue-600 dark:text-blue-400 hover:underline">
+                  Stats
                 </Link>
                 <a
                   href={`/api/export?classId=${c.id}`}

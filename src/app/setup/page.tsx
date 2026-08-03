@@ -8,7 +8,7 @@ export default function SetupPage() {
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [expanded, setExpanded] = useState<Record<string, ClassData>>({});
   const [name, setName] = useState("");
-  const [instructorName, setInstructorName] = useState("");
+  const [reviewerName, setReviewerName] = useState("");
   const [headcount, setHeadcount] = useState(22);
   const [teamSize, setTeamSize] = useState(6);
   const [creating, setCreating] = useState(false);
@@ -27,16 +27,17 @@ export default function SetupPage() {
     e.preventDefault();
     if (!name.trim() || !headcount) return;
     setCreating(true);
-    await apiWrite<ClassData>("POST", "/api/classes", {
+    const created = await apiWrite<ClassData>("POST", "/api/classes", {
       name: name.trim(),
-      instructorName: instructorName.trim() || undefined,
+      reviewerName: reviewerName.trim() || undefined,
       headcount,
       teamSize,
     });
     setName("");
-    setInstructorName("");
+    setReviewerName("");
     setCreating(false);
     await refreshList();
+    if (created?.class?.id) setExpanded((prev) => ({ ...prev, [created.class.id]: created }));
   }
 
   async function toggleExpand(classId: string) {
@@ -50,18 +51,8 @@ export default function SetupPage() {
     if (data) setExpanded((prev) => ({ ...prev, [classId]: data }));
   }
 
-  function updateExpandedTeam(classId: string, team: TeamWithStudents) {
-    setExpanded((prev) => {
-      const cls = prev[classId];
-      if (!cls) return prev;
-      return {
-        ...prev,
-        [classId]: {
-          ...cls,
-          teams: cls.teams.map((t) => (t.id === team.id ? team : t)),
-        },
-      };
-    });
+  function setClassData(classId: string, data: ClassData) {
+    setExpanded((prev) => ({ ...prev, [classId]: data }));
   }
 
   return (
@@ -70,7 +61,8 @@ export default function SetupPage() {
         <h1 className="text-xl font-semibold">Setup</h1>
         <p className="text-sm text-black/60 dark:text-white/60 mt-1">
           Add each of the 6 classes with a headcount. Teams of {teamSize} are generated
-          automatically - fill in real names whenever you have the roster.
+          automatically - paste the whole roster in one go below and it lands in the right
+          teams, or fill it in later.
         </p>
       </div>
 
@@ -88,10 +80,10 @@ export default function SetupPage() {
             />
           </label>
           <label className="text-sm">
-            <span className="block text-black/60 dark:text-white/60 mb-1">Instructor</span>
+            <span className="block text-black/60 dark:text-white/60 mb-1">Reviewer</span>
             <input
-              value={instructorName}
-              onChange={(e) => setInstructorName(e.target.value)}
+              value={reviewerName}
+              onChange={(e) => setReviewerName(e.target.value)}
               placeholder="optional"
               className="w-full border border-black/15 dark:border-white/20 rounded-md px-2 py-1.5 bg-transparent"
             />
@@ -137,7 +129,7 @@ export default function SetupPage() {
               <div>
                 <p className="font-medium">{c.name}</p>
                 <p className="text-xs text-black/50 dark:text-white/50">
-                  {c.instructor_name ? `${c.instructor_name} · ` : ""}
+                  {c.reviewer_name ? `${c.reviewer_name} · ` : ""}
                   {c.headcount} students
                 </p>
               </div>
@@ -145,14 +137,17 @@ export default function SetupPage() {
             </button>
             {expanded[c.id] && (
               <div className="border-t border-black/10 dark:border-white/10 p-4 space-y-4">
-                {expanded[c.id].teams.map((team) => (
-                  <TeamRoster
-                    key={team.id}
-                    classId={c.id}
-                    team={team}
-                    onUpdate={(t) => updateExpandedTeam(c.id, t)}
-                  />
-                ))}
+                <BulkImport classData={expanded[c.id]} onUpdate={(d) => setClassData(c.id, d)} />
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {expanded[c.id].teams.map((team) => (
+                    <TeamRoster
+                      key={team.id}
+                      classData={expanded[c.id]}
+                      team={team}
+                      onUpdate={(d) => setClassData(c.id, d)}
+                    />
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -162,37 +157,92 @@ export default function SetupPage() {
   );
 }
 
-function TeamRoster({
-  team,
+function BulkImport({
+  classData,
   onUpdate,
 }: {
-  classId: string;
-  team: TeamWithStudents;
-  onUpdate: (team: TeamWithStudents) => void;
+  classData: ClassData;
+  onUpdate: (data: ClassData) => void;
 }) {
   const [paste, setPaste] = useState("");
   const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const totalSlots = classData.teams.reduce((n, t) => n + t.students.length, 0);
 
-  async function autofillFromPaste() {
+  async function apply() {
     const names = paste
       .split("\n")
       .map((n) => n.trim())
       .filter(Boolean);
     if (names.length === 0) return;
     setSaving(true);
-    const updated = await apiWrite<TeamWithStudents>(
+    setResult(null);
+    const res = await apiWrite<ClassData & { applied: number; totalSlots: number }>(
       "PATCH",
-      `/api/teams/${team.id}/students`,
+      `/api/classes/${classData.class.id}/autofill`,
       { names },
-      `patch-team-students-${team.id}`
+      `class-autofill-${classData.class.id}`
     );
-    onUpdate(updated);
-    setPaste("");
+    onUpdate({ class: res.class, teams: res.teams });
     setSaving(false);
+    setPaste("");
+    if (typeof res.applied === "number") {
+      const leftover = names.length - res.applied;
+      setResult(
+        leftover > 0
+          ? `Applied ${res.applied} of ${res.totalSlots} slots - ${leftover} name(s) had no team slot left.`
+          : `Applied ${res.applied} of ${res.totalSlots} slots.`
+      );
+    }
   }
 
-  async function renameStudent(studentId: string, value: string) {
+  return (
+    <div className="border border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20 rounded-md p-3">
+      <p className="text-sm font-medium mb-1">Bulk-import this class&apos;s roster</p>
+      <p className="text-xs text-black/60 dark:text-white/60 mb-2">
+        Paste all {totalSlots} names in one go, one per line, in the order you want them filled -
+        Team 1&apos;s slots first, then Team 2&apos;s, and so on. Hit apply once and every team
+        updates together.
+      </p>
+      <textarea
+        value={paste}
+        onChange={(e) => setPaste(e.target.value)}
+        placeholder={`One name per line (up to ${totalSlots})`}
+        rows={5}
+        className="w-full text-sm border border-black/15 dark:border-white/20 rounded-md px-2 py-1.5 bg-white dark:bg-black/30 mb-2"
+      />
+      <div className="flex items-center gap-3">
+        <button
+          onClick={apply}
+          disabled={saving}
+          className="text-sm bg-black text-white dark:bg-white dark:text-black px-3 py-1.5 rounded-md disabled:opacity-50"
+        >
+          {saving ? "Applying…" : "Apply to all teams"}
+        </button>
+        {result && <p className="text-xs text-black/60 dark:text-white/60">{result}</p>}
+      </div>
+    </div>
+  );
+}
+
+function TeamRoster({
+  classData,
+  team,
+  onUpdate,
+}: {
+  classData: ClassData;
+  team: TeamWithStudents;
+  onUpdate: (data: ClassData) => void;
+}) {
+  function patchTeamLocally(updated: TeamWithStudents) {
     onUpdate({
+      ...classData,
+      teams: classData.teams.map((t) => (t.id === updated.id ? updated : t)),
+    });
+  }
+
+  function renameLocally(studentId: string, value: string) {
+    patchTeamLocally({
       ...team,
       students: team.students.map((s) => (s.id === studentId ? { ...s, name: value } : s)),
     });
@@ -202,41 +252,53 @@ function TeamRoster({
     await apiWrite("PATCH", `/api/students/${studentId}`, { name: value }, `rename-${studentId}`);
   }
 
+  async function moveStudent(studentId: string, targetTeamId: string) {
+    if (targetTeamId === team.id) return;
+    const student = team.students.find((s) => s.id === studentId);
+    if (!student) return;
+    // optimistic local move between the two team lists
+    const targetTeam = classData.teams.find((t) => t.id === targetTeamId);
+    onUpdate({
+      ...classData,
+      teams: classData.teams.map((t) => {
+        if (t.id === team.id) return { ...t, students: t.students.filter((s) => s.id !== studentId) };
+        if (t.id === targetTeamId && targetTeam) return { ...t, students: [...t.students, student] };
+        return t;
+      }),
+    });
+    await apiWrite("PATCH", `/api/students/${studentId}/team`, { teamId: targetTeamId }, `move-${studentId}`);
+  }
+
   return (
     <div className="border border-black/10 dark:border-white/10 rounded-md p-3">
       <p className="text-sm font-medium mb-2">{team.name}</p>
-      <div className="space-y-1.5 mb-3">
+      <div className="space-y-1.5">
         {team.students.map((s) => (
-          <input
-            key={s.id}
-            value={s.name}
-            onChange={(e) => renameStudent(s.id, e.target.value)}
-            onBlur={(e) => commitRename(s.id, e.target.value)}
-            className="w-full text-sm border border-black/15 dark:border-white/20 rounded-md px-2 py-1 bg-transparent"
-          />
+          <div key={s.id} className="flex items-center gap-1.5">
+            <input
+              value={s.name}
+              onChange={(e) => renameLocally(s.id, e.target.value)}
+              onBlur={(e) => commitRename(s.id, e.target.value)}
+              className="flex-1 min-w-0 text-sm border border-black/15 dark:border-white/20 rounded-md px-2 py-1 bg-transparent"
+            />
+            <select
+              value={team.id}
+              onChange={(e) => moveStudent(s.id, e.target.value)}
+              title="Move to a different team"
+              className="text-xs border border-black/15 dark:border-white/20 rounded-md px-1 py-1 bg-transparent"
+            >
+              {classData.teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
         ))}
+        {team.students.length === 0 && (
+          <p className="text-xs text-black/40 italic">No one on this team yet.</p>
+        )}
       </div>
-      <details>
-        <summary className="text-xs text-blue-600 dark:text-blue-400 cursor-pointer">
-          Paste names to autofill this team
-        </summary>
-        <div className="mt-2 flex flex-col gap-2">
-          <textarea
-            value={paste}
-            onChange={(e) => setPaste(e.target.value)}
-            placeholder={`One name per line, ${team.students.length} max`}
-            rows={3}
-            className="w-full text-sm border border-black/15 dark:border-white/20 rounded-md px-2 py-1.5 bg-transparent"
-          />
-          <button
-            onClick={autofillFromPaste}
-            disabled={saving}
-            className="self-start text-xs bg-black text-white dark:bg-white dark:text-black px-3 py-1.5 rounded-md disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Autofill"}
-          </button>
-        </div>
-      </details>
     </div>
   );
 }

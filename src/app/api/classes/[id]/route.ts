@@ -13,8 +13,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const body = await req.json();
   const db = getDb();
-  if (body.instructorName !== undefined) {
-    db.prepare("UPDATE classes SET instructor_name = ? WHERE id = ?").run(body.instructorName, id);
+  if (body.reviewerName !== undefined) {
+    db.prepare("UPDATE classes SET reviewer_name = ? WHERE id = ?").run(body.reviewerName, id);
   }
   if (body.name !== undefined) {
     db.prepare("UPDATE classes SET name = ? WHERE id = ?").run(body.name, id);

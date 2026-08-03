@@ -18,7 +18,7 @@ export interface CriterionDef {
 export interface ClassRow {
   id: string;
   name: string;
-  instructor_name: string | null;
+  reviewer_name: string | null;
   headcount: number;
   created_at: string;
 }
@@ -69,7 +69,7 @@ export interface ClassData {
 // browser-side merge tool, so exported files can be re-parsed and merged.
 export interface RosterExportRow {
   Class: string;
-  Instructor: string;
+  Reviewer: string;
   Team: string;
   Student: string;
 }

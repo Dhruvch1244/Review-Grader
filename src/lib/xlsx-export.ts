@@ -1,11 +1,7 @@
 import * as XLSX from "xlsx";
 import { getClassData, listReviews, getScoresForClass } from "./queries";
 import { buildSummaryRows, overallByStudent } from "./rollup";
-import type {
-  RosterExportRow,
-  TeamScoreExportRow,
-  IndividualScoreExportRow,
-} from "./types";
+import { buildExportRows } from "./export-rows";
 
 const PANELISTS_SHEET: (string | number)[][] = [
   ["Panelist", "Focus", "Expertise"],
@@ -34,55 +30,12 @@ export function buildClassWorkbook(classId: string): XLSX.WorkBook {
   const reviews = listReviews();
   const { teamScores, individualScores } = getScoresForClass(classId);
 
-  const teamById = new Map(data.teams.map((t) => [t.id, t]));
-  const criterionById = new Map(reviews.flatMap((r) => r.criteria.map((c) => [c.id, { ...c, review: r }])));
-  const reviewById = new Map(reviews.map((r) => [r.id, r]));
-  const studentById = new Map(data.teams.flatMap((t) => t.students.map((s) => [s.id, { ...s, team: t }])));
-
-  const roster: RosterExportRow[] = data.teams.flatMap((t) =>
-    t.students.map((s) => ({
-      Class: data.class.name,
-      Instructor: data.class.instructor_name ?? "",
-      Team: t.name,
-      Student: s.name,
-    }))
+  const { roster, teamScoreRows, individualScoreRows } = buildExportRows(
+    data,
+    reviews,
+    teamScores,
+    individualScores
   );
-
-  const teamScoreRows: TeamScoreExportRow[] = teamScores
-    .map((ts) => {
-      const team = teamById.get(ts.team_id);
-      const crit = criterionById.get(ts.criterion_id);
-      const review = reviewById.get(ts.review_id);
-      if (!team || !crit || !review) return null;
-      return {
-        Class: data.class.name,
-        Team: team.name,
-        ReviewNumber: review.number,
-        ReviewLabel: review.label,
-        Category: crit.category,
-        Criterion: crit.text,
-        Score: ts.score,
-        Notes: ts.notes,
-      };
-    })
-    .filter((r): r is TeamScoreExportRow => r !== null);
-
-  const individualScoreRows: IndividualScoreExportRow[] = individualScores
-    .map((is) => {
-      const student = studentById.get(is.student_id);
-      const review = reviewById.get(is.review_id);
-      if (!student || !review) return null;
-      return {
-        Class: data.class.name,
-        Team: student.team.name,
-        Student: student.name,
-        ReviewNumber: review.number,
-        ReviewLabel: review.label,
-        Delta: is.delta,
-        Notes: is.notes,
-      };
-    })
-    .filter((r): r is IndividualScoreExportRow => r !== null);
 
   const summaryRows = buildSummaryRows(teamScoreRows, individualScoreRows);
   const overallRows = overallByStudent(summaryRows);

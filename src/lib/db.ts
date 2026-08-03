@@ -11,7 +11,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS classes (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  instructor_name TEXT,
+  reviewer_name TEXT,
   headcount INTEGER NOT NULL,
   created_at TEXT NOT NULL
 );

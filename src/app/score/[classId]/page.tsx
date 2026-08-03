@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { apiGet, apiWrite } from "@/lib/api-client";
+import QuestionSession from "@/components/QuestionSession";
 import type {
   ClassData,
   ReviewDef,
@@ -21,6 +23,7 @@ export default function ScorePage() {
   const [individualScores, setIndividualScores] = useState<Record<string, IndividualScoreRow>>({});
   const [reviewId, setReviewId] = useState<string>("r1");
   const [teamId, setTeamId] = useState<string | null>(null);
+  const notesRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   useEffect(() => {
     if (!classId) return;
@@ -50,6 +53,16 @@ export default function ScorePage() {
       .filter((v): v is number => typeof v === "number");
     if (vals.length === 0) return null;
     return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
+  }, [team, review, teamScores]);
+
+  const teamScoresByCriterion = useMemo(() => {
+    const map: Record<string, TeamScoreRow | undefined> = {};
+    if (team && review) {
+      for (const c of review.criteria) {
+        map[c.id] = teamScores[`${team.id}:${review.id}:${c.id}`];
+      }
+    }
+    return map;
   }, [team, review, teamScores]);
 
   async function setCriterionScore(criterionId: string, score: number) {
@@ -116,6 +129,15 @@ export default function ScorePage() {
     );
   }
 
+  function appendIndividualNotes(studentId: string, text: string) {
+    if (!review) return;
+    const el = notesRefs.current[studentId];
+    const existing = el?.value ?? individualScores[`${studentId}:${review.id}`]?.notes ?? "";
+    const next = existing ? `${existing}\n${text}` : text;
+    if (el) el.value = next;
+    setIndividualNotes(studentId, next);
+  }
+
   if (!classData) return <p className="text-sm text-black/50">Loading…</p>;
 
   return (
@@ -124,15 +146,23 @@ export default function ScorePage() {
         <div>
           <h1 className="text-xl font-semibold">{classData.class.name}</h1>
           <p className="text-sm text-black/60 dark:text-white/60">
-            {classData.class.instructor_name ?? "No instructor set"}
+            {classData.class.reviewer_name ?? "No reviewer set"}
           </p>
         </div>
-        <a
-          href={`/api/export?classId=${classData.class.id}`}
-          className="text-sm bg-black text-white dark:bg-white dark:text-black px-3 py-1.5 rounded-md"
-        >
-          Export .xlsx
-        </a>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/stats/${classData.class.id}`}
+            className="text-sm border border-black/15 dark:border-white/20 px-3 py-1.5 rounded-md"
+          >
+            Stats
+          </Link>
+          <a
+            href={`/api/export?classId=${classData.class.id}`}
+            className="text-sm bg-black text-white dark:bg-white dark:text-black px-3 py-1.5 rounded-md"
+          >
+            Export .xlsx
+          </a>
+        </div>
       </div>
 
       <div className="flex gap-2 flex-wrap">
@@ -185,7 +215,7 @@ export default function ScorePage() {
                   const key = `${team.id}:${review.id}:${c.id}`;
                   const current = teamScores[key];
                   return (
-                    <li key={c.id} className="border-t border-black/5 dark:border-white/10 pt-3 first:border-t-0 first:pt-0">
+                    <li key={key} className="border-t border-black/5 dark:border-white/10 pt-3 first:border-t-0 first:pt-0">
                       <div className="flex items-start justify-between gap-3">
                         <p className="text-sm flex-1">
                           <span
@@ -238,7 +268,7 @@ export default function ScorePage() {
                       ? Math.round((teamAvg + current.delta) * 100) / 100
                       : teamAvg;
                   return (
-                    <li key={s.id} className="border-t border-black/5 dark:border-white/10 pt-3 first:border-t-0 first:pt-0">
+                    <li key={key} className="border-t border-black/5 dark:border-white/10 pt-3 first:border-t-0 first:pt-0">
                       <div className="flex items-start justify-between gap-3">
                         <div className="text-sm flex-1">
                           <p className="font-medium">{s.name}</p>
@@ -262,11 +292,21 @@ export default function ScorePage() {
                           ))}
                         </div>
                       </div>
-                      <input
+                      <textarea
+                        ref={(el) => {
+                          notesRefs.current[s.id] = el;
+                        }}
                         defaultValue={current?.notes ?? ""}
                         onBlur={(e) => setIndividualNotes(s.id, e.target.value)}
                         placeholder="notes (optional)"
+                        rows={2}
                         className="mt-1.5 w-full text-xs border border-black/10 dark:border-white/15 rounded px-2 py-1 bg-transparent"
+                      />
+                      <QuestionSession
+                        studentName={s.name}
+                        criteria={review.criteria}
+                        teamScoresByCriterion={teamScoresByCriterion}
+                        onAppendNotes={(text) => appendIndividualNotes(s.id, text)}
                       />
                     </li>
                   );
