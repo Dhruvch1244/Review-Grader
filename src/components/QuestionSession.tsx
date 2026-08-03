@@ -161,30 +161,35 @@ export default function QuestionSession({
                       toggleOpen(q.criterionId);
                     }
                   }}
-                  className="w-full flex items-center gap-2 px-2.5 py-2 cursor-pointer hover:bg-muted/60 transition-colors"
+                  className="w-full flex items-start gap-2 px-2.5 py-2 cursor-pointer hover:bg-muted/60 transition-colors"
                 >
                   <Checkbox
                     checked={rating === "answered"}
                     onClick={(e) => e.stopPropagation()}
                     onCheckedChange={(checked) => setRating(q.criterionId, checked ? "answered" : null)}
                     aria-label="Mark question complete"
+                    className="mt-0.5"
                   />
-                  <Badge variant={q.category === "Security" ? "secondary" : "outline"} className="h-4 px-1 text-[9px] uppercase tracking-wide shrink-0">
-                    {q.category}
-                  </Badge>
-                  {q.weak && (
-                    <Badge variant="destructive" className="h-4 px-1 text-[9px] uppercase tracking-wide shrink-0">
-                      weak
-                    </Badge>
-                  )}
-                  <span className="flex-1 truncate font-medium text-foreground">{q.question}</span>
-                  {rating && (
-                    <span className={cn("size-1.5 rounded-full shrink-0", RATING_DOT[rating])} title={rating} />
-                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Badge variant={q.category === "Security" ? "secondary" : "outline"} className="h-4 px-1 text-[9px] uppercase tracking-wide shrink-0">
+                        {q.category}
+                      </Badge>
+                      {q.weak && (
+                        <Badge variant="destructive" className="h-4 px-1 text-[9px] uppercase tracking-wide shrink-0">
+                          weak spot
+                        </Badge>
+                      )}
+                      {rating && (
+                        <span className={cn("size-1.5 rounded-full shrink-0", RATING_DOT[rating])} title={rating} />
+                      )}
+                    </div>
+                    <p className="font-medium text-foreground leading-snug">{q.question}</p>
+                  </div>
                   {isOpen ? (
-                    <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
+                    <ChevronDown className="size-3.5 text-muted-foreground shrink-0 mt-0.5" />
                   ) : (
-                    <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
+                    <ChevronRight className="size-3.5 text-muted-foreground shrink-0 mt-0.5" />
                   )}
                 </div>
                 {isOpen && (
