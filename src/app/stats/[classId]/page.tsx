@@ -14,9 +14,6 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  PieChart,
-  Pie,
-  Cell,
   RadarChart,
   PolarGrid,
   PolarAngleAxis,
@@ -40,7 +37,7 @@ import {
   criteriaHeatmap,
   scoreHistogram,
   teamScatterData,
-  scoreHealthCounts,
+  scoreHealthByReview,
   radarDataForReview,
 } from "@/lib/stats-utils";
 import { CATEGORICAL_LIGHT, CATEGORICAL_DARK, CHROME, STATUS, sequentialBlue, usePrefersDark } from "@/lib/chart-colors";
@@ -103,7 +100,7 @@ export default function StatsPage() {
   const categoryTrend = categoryBreakdownByReview(reviews, rows.teamScoreRows);
   const histogram = scoreHistogram(rows.teamScoreRows, rows.individualScoreRows);
   const scatter = teamScatterData(classData, rows.teamScoreRows, rows.individualScoreRows);
-  const health = scoreHealthCounts(rows.teamScoreRows, reviewFocus);
+  const health = scoreHealthByReview(reviews, rows.teamScoreRows);
   const heatmap = heatmapReview ? criteriaHeatmap(classData, heatmapReview, rows.teamScoreRows) : null;
   const radar = heatmapReview ? radarDataForReview(heatmapReview, rows.teamScoreRows, radarTeams) : null;
 
@@ -260,32 +257,22 @@ export default function StatsPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* 7. Score health donut */}
-        <ChartCard title="Score health" subtitle={reviewFocus === "all" ? "All reviews" : `Review R${reviewFocus}`}>
-          {health.every((h) => h.value === 0) ? (
-            <EmptyState message="No criteria scored yet for this scope." />
+        {/* 7. Score health across reviews */}
+        <ChartCard title="Score health" subtitle="Low (1-2) / Mid (3) / High (4-5) criteria scores, R1 → R4">
+          {health.every((h) => h.Low + h.Mid + h.High === 0) ? (
+            <EmptyState message="No criteria scored yet." />
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie
-                  data={health.filter((h) => h.value > 0)}
-                  dataKey="value"
-                  nameKey="label"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={2}
-                  label={({ name, value }) => `${name}: ${value}`}
-                  labelLine={false}
-                >
-                  {health
-                    .filter((h) => h.value > 0)
-                    .map((h) => (
-                      <Cell key={h.label} fill={STATUS[h.color]} />
-                    ))}
-                </Pie>
+              <BarChart data={health} margin={{ top: 8, right: 16, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={chrome.grid} vertical={false} />
+                <XAxis dataKey="review" tick={axisStyle} axisLine={{ stroke: chrome.baseline }} tickLine={false} />
+                <YAxis allowDecimals={false} tick={axisStyle} axisLine={{ stroke: chrome.baseline }} tickLine={false} />
                 <Tooltip contentStyle={tooltipStyle} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-              </PieChart>
+                <Bar dataKey="Low" stackId="health" fill={STATUS.critical} maxBarSize={48} />
+                <Bar dataKey="Mid" stackId="health" fill={STATUS.warning} maxBarSize={48} />
+                <Bar dataKey="High" stackId="health" fill={STATUS.good} radius={[4, 4, 0, 0]} maxBarSize={48} />
+              </BarChart>
             </ResponsiveContainer>
           )}
         </ChartCard>

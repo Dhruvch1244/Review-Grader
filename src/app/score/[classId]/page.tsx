@@ -8,7 +8,8 @@ import QuestionSession from "@/components/QuestionSession";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { PlayCircle } from "lucide-react";
+import { PlayCircle, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 import type {
   ClassData,
   ReviewDef,
@@ -27,6 +28,7 @@ export default function ScorePage() {
   const [individualScores, setIndividualScores] = useState<Record<string, IndividualScoreRow>>({});
   const [reviewId, setReviewId] = useState<string>("r1");
   const [teamId, setTeamId] = useState<string | null>(null);
+  const [resetNonce, setResetNonce] = useState(0);
   const notesRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   useEffect(() => {
@@ -149,6 +151,19 @@ export default function ScorePage() {
     setIndividualNotes(studentId, next);
   }
 
+  async function resetTeam() {
+    if (!team) return;
+    if (!window.confirm(`Reset all scores, ratings, and session state for ${team.name}? This can't be undone.`)) {
+      return;
+    }
+    await apiWrite("DELETE", `/api/teams/${team.id}/reset`);
+    const studentIds = new Set(team.students.map((s) => s.id));
+    setTeamScores((prev) => Object.fromEntries(Object.entries(prev).filter(([, v]) => v.team_id !== team.id)));
+    setIndividualScores((prev) => Object.fromEntries(Object.entries(prev).filter(([, v]) => !studentIds.has(v.student_id))));
+    setResetNonce((n) => n + 1);
+    toast.success(`${team.name} reset`);
+  }
+
   if (!classData) return <p className="text-sm text-muted-foreground">Loading…</p>;
 
   return (
@@ -222,9 +237,14 @@ export default function ScorePage() {
             <Card>
               <CardHeader className="flex-row items-center justify-between">
                 <CardTitle className="text-sm">Team baseline - {team.name}</CardTitle>
-                <span className="text-sm">
-                  Avg: <strong>{teamAvg ?? "—"}</strong> / 5
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm">
+                    Avg: <strong>{teamAvg ?? "—"}</strong> / 5
+                  </span>
+                  <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:text-destructive" onClick={resetTeam}>
+                    <RotateCcw className="size-3.5" /> Reset team
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-3">
@@ -281,7 +301,7 @@ export default function ScorePage() {
                         ? Math.round((teamAvg + current.delta) * 100) / 100
                         : teamAvg;
                     return (
-                      <li key={key} className="border-t pt-3 first:border-t-0 first:pt-0">
+                      <li key={`${key}:${resetNonce}`} className="border-t pt-3 first:border-t-0 first:pt-0">
                         <div className="flex items-start justify-between gap-3">
                           <div className="text-sm flex-1">
                             <p className="font-medium">{s.name}</p>

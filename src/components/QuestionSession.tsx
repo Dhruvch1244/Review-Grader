@@ -26,32 +26,50 @@ export default function QuestionSession({
   onAppendNotes: (text: string) => void;
   onDeltaChange: (delta: number | null) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [questions, setQuestions] = useState<GeneratedQuestion[]>([]);
   const [ratings, setRatings] = useState<Record<string, QuestionRating>>({});
 
   useEffect(() => {
+    let cancelled = false;
     apiGet<{ questions: GeneratedQuestion[]; ratings: QuestionRatingRow[] }>(
-      `/api/question-sessions?studentId=${studentId}&reviewId=${reviewId}`
-    ).then((data) => {
-      if (data?.questions?.length) {
-        setQuestions(data.questions);
-        setRatings(Object.fromEntries(data.ratings.map((r) => [r.criterion_id, r.rating])));
-      }
-    });
-  }, [studentId, reviewId]);
+      `/api/question-sessions?studentId=${studentId}&teamId=${teamId}&reviewId=${reviewId}`
+    )
+      .then(async (data) => {
+        if (cancelled) return;
+        if (data?.questions?.length) {
+          setQuestions(data.questions);
+          setRatings(Object.fromEntries(data.ratings.map((r) => [r.criterion_id, r.rating])));
+          return;
+        }
+        // No session yet for this student/review - generate one immediately
+        // so the questions and weak spots are visible without an extra click.
+        const generated = await apiWrite<{ questions: GeneratedQuestion[]; ratings: QuestionRatingRow[] }>(
+          "POST",
+          "/api/question-sessions",
+          { studentId, teamId, reviewId, regenerate: false }
+        );
+        if (cancelled) return;
+        setQuestions(generated.questions ?? []);
+        setRatings(Object.fromEntries((generated.ratings ?? []).map((r) => [r.criterion_id, r.rating])));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [studentId, teamId, reviewId]);
 
-  async function generate(regenerate: boolean) {
+  async function regenerate() {
     setLoading(true);
     const data = await apiWrite<{ questions: GeneratedQuestion[]; ratings: QuestionRatingRow[] }>(
       "POST",
       "/api/question-sessions",
-      { studentId, teamId, reviewId, regenerate }
+      { studentId, teamId, reviewId, regenerate: true }
     );
     setQuestions(data.questions ?? []);
     setRatings(Object.fromEntries((data.ratings ?? []).map((r) => [r.criterion_id, r.rating])));
-    setOpen(true);
     setLoading(false);
   }
 
@@ -83,25 +101,28 @@ export default function QuestionSession({
 
   return (
     <div className="mt-2">
-      <div className="flex items-center gap-2 flex-wrap">
-        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => generate(questions.length > 0)} disabled={loading}>
-          {loading ? "Generating…" : questions.length > 0 ? "Regenerate" : "Simulate session (5 Qs)"}
+      <div className="flex items-center gap-2 flex-wrap mb-2">
+        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={regenerate} disabled={loading}>
+          {loading ? "Generating…" : "Regenerate"}
         </Button>
         {questions.length > 0 && (
           <>
-            <Button variant="link" size="sm" className="h-7 text-xs px-0" onClick={() => setOpen((v) => !v)}>
-              {open ? "Hide" : "Show"} questions
-            </Button>
             <Button variant="link" size="sm" className="h-7 text-xs px-0 text-muted-foreground" onClick={copyToNotes}>
               Copy to notes
             </Button>
-            <span className="text-xs text-muted-foreground">{ratedCount}/{questions.length} rated</span>
+            <span className="text-xs text-muted-foreground">
+              {ratedCount}/{questions.length} rated
+            </span>
           </>
         )}
       </div>
 
-      {open && questions.length > 0 && (
-        <ol className="mt-2 space-y-3 rounded-lg border p-3 bg-muted/30">
+      {loading && questions.length === 0 && (
+        <p className="text-xs text-muted-foreground">Generating questions…</p>
+      )}
+
+      {questions.length > 0 && (
+        <ol className="space-y-3 rounded-lg border p-3 bg-muted/30">
           {questions.map((q, i) => (
             <li key={`${q.criterionId}-${i}`} className="text-xs border-t pt-2.5 first:border-t-0 first:pt-0">
               <div className="flex items-start justify-between gap-3">

@@ -28,12 +28,17 @@ keeps working if the WiFi drops mid-review. UI is built on shadcn/ui.
   (each host machine keeps its own) - deliberately outside the project
   folder, so `next dev`'s file watcher doesn't treat every score save as a
   source change and reload the page. Override the location with
-  `REVIEW_GRADER_DATA_DIR=/some/path`. **To reset all data**, stop the server
-  and delete that directory (`rm -rf ~/.review-grader`), then restart - the 6
-  classes and rubric reseed automatically. Client writes also go through an
+  `REVIEW_GRADER_DATA_DIR=/some/path`. Client writes also go through an
   IndexedDB queue first, so scoring keeps working offline and syncs
   automatically once the connection comes back (offline edits always win on
   sync - see `src/lib/api-client.ts`).
+- **Resetting data**: no need to touch the filesystem for this. A **"Reset
+  team"** button on the Score page clears one team's scores, ratings, and
+  question sessions (rosters and rubric stay put). A **"Reset all data"**
+  button on `/setup` wipes every score/rating/session across all 6 classes
+  the same way. To wipe everything including rosters, stop the server and
+  delete `~/.review-grader` directly - the 6 classes and rubric reseed
+  automatically on next start.
 
 ## Running it
 
@@ -45,34 +50,63 @@ npm run start -- -H 0.0.0.0 -p 3000
 
 `-H 0.0.0.0` makes it reachable from other devices on the same WiFi/LAN at
 `http://<host-machine-IP>:3000`. Use `npm run dev -- -H 0.0.0.0` instead
-while iterating locally.
+while iterating locally. The app opens straight to `/setup` - that's the
+landing page.
+
+### Windows release (no Node/npm install needed)
+
+Every GitHub Release gets a `review-grader-windows.zip` built by
+`.github/workflows/release.yml`: it builds the Next.js standalone bundle on
+`windows-latest` (so `better-sqlite3`'s native binary is compiled for
+Windows), bundles a portable Node.js runtime and `scripts/windows/start.bat`
+alongside it, and zips the lot. For someone who just wants to run it:
+
+1. Download and unzip `review-grader-windows.zip` from the
+   [Releases](../../releases) page.
+2. Double-click `start.bat`. It picks a random free-ish port, starts the
+   server minimized, and opens the app in the default browser a couple
+   seconds later. See `scripts/windows/README-WINDOWS.txt` (included in the
+   zip) for how to stop it and where data is stored.
+
+No Node.js, npm, or build step required on the end user's machine.
 
 ## Workflow
 
-1. **Setup** (`/setup`) - the 6 classes are ready with full rosters. Paste a
-   whole class's real roster in one go (one name per line) and hit "Apply to
-   all teams" to fill every team's slots in order. Add/remove teams and
-   members, or shuffle in a fresh random roster, at any time.
+1. **Setup** (`/setup`, the landing page) - the 6 classes are ready with full
+   rosters. Paste a whole class's real roster in one go (one name per line)
+   and hit "Apply to all teams" to fill every team's slots in order.
+   Add/remove teams and members, or shuffle in a fresh random roster, at any
+   time. "Reset all data" lives here too.
 2. **Score** (`/score/[classId]`) - pick a review, pick a team, score the
    rubric criteria live, then work through each student's individual Q&A.
-   Each student has a **"Simulate session"** button that generates 5
-   *distinct* questions (no repeats across teammates in the same review),
-   weighted toward whatever the team scored low or left unscored - each comes
-   with a reviewer-facing note on what a strong answer covers. Rate each
-   question Answered/Middle/Unanswered; only rated ones count toward the
-   student's delta. The question bank is editable at `/questions`.
+   Each student's question session **generates and shows its questions
+   automatically** - 5 *distinct* questions per student (no repeats across
+   teammates in the same review), weighted toward whatever the team scored
+   low or left unscored, each with a reviewer-facing note on what a strong
+   answer covers, plus a **weak spot** badge when the question targets a
+   criterion the team scored low or left unscored. Per-student progress
+   (which questions are rated, and how) is stored and survives a reload;
+   "Regenerate" resets that student's session. Rate each question
+   Answered/Middle/Unanswered; only rated ones count toward the student's
+   delta. The question bank is editable at `/questions`. A "Reset team"
+   button clears one team's scores/ratings/sessions without touching the
+   roster.
 3. **Guided review** (`/review/[classId]/[reviewId]/[teamId]`, linked from
    the Score page) - runs an actual review end to end: a 20-minute
    presentation timer (score the rubric live while it runs), automatic
-   hand-off to individual Q&A once time's up, one student at a time, and a
-   final screen to add grace marks before marking the review complete. State
-   persists server-side, so a refresh mid-session resumes where it left off.
+   hand-off to individual Q&A once time's up, **all 6 teammates' question
+   panels shown at once in a grid** so the whole team's Q&A can be rated in
+   parallel instead of one student at a time, and a final screen to add
+   grace marks before marking the review complete. State persists
+   server-side, so a refresh mid-session resumes where it left off.
 4. **Stats** (`/stats/[classId]`) - a dashboard of team and student
    comparisons: team averages, trend across R1-R4, a class-wide Build vs.
    Security breakdown, a student leaderboard, score distribution, a
    criteria x team heatmap, a per-team radar of criteria strengths/gaps, a
-   team-baseline-vs-individual-delta scatter, and a raw data table. Colors
-   follow the dataviz skill's validated palette (`src/lib/chart-colors.ts`).
+   team-baseline-vs-individual-delta scatter, a **Score Health** stacked bar
+   chart (Low/Mid/High criteria scores per review, replacing the old pie
+   chart), and a raw data table. Colors follow the dataviz skill's validated
+   palette (`src/lib/chart-colors.ts`).
 5. **Normalize** (`/normalize`) - converts every student's overall score to a
    z-score against their own class's mean/spread, then to a 0-100 T-score, so
    classes graded at different levels of strictness become comparable.

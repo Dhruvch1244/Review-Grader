@@ -489,3 +489,36 @@ export function updateReviewSession(
   ).run(next);
   return next;
 }
+
+// ---- Reset (scoring data only - never touches classes/teams/students/rubric) ----
+
+/** Clears one team's scores, question sessions/ratings, and live-session
+ * state so it can be graded again from scratch. Roster is untouched. */
+export function resetTeamScoring(teamId: string): void {
+  const db = getDb();
+  const tx = db.transaction(() => {
+    const students = db.prepare("SELECT id FROM students WHERE team_id = ?").all(teamId) as { id: string }[];
+    db.prepare("DELETE FROM team_scores WHERE team_id = ?").run(teamId);
+    db.prepare("DELETE FROM review_sessions WHERE team_id = ?").run(teamId);
+    for (const s of students) {
+      db.prepare("DELETE FROM individual_scores WHERE student_id = ?").run(s.id);
+      db.prepare("DELETE FROM question_ratings WHERE student_id = ?").run(s.id);
+      db.prepare("DELETE FROM question_sessions WHERE student_id = ?").run(s.id);
+    }
+  });
+  tx();
+}
+
+/** Clears ALL scoring data across every class - classes, teams, students,
+ * the rubric, and the question bank are all left exactly as they are. */
+export function resetAllScoring(): void {
+  const db = getDb();
+  const tx = db.transaction(() => {
+    db.prepare("DELETE FROM team_scores").run();
+    db.prepare("DELETE FROM individual_scores").run();
+    db.prepare("DELETE FROM question_ratings").run();
+    db.prepare("DELETE FROM question_sessions").run();
+    db.prepare("DELETE FROM review_sessions").run();
+  });
+  tx();
+}

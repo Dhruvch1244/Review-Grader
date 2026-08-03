@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { apiGet, apiWrite } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Trash2, Shuffle, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Shuffle, ChevronDown, ChevronRight, BarChart3, Download, ClipboardList, AlertTriangle } from "lucide-react";
 import { generateIndianNames } from "@/lib/indian-names";
 import type { ClassRow, ClassData, TeamWithStudents, StudentRow } from "@/lib/types";
 
@@ -42,39 +43,75 @@ export default function SetupPage() {
     setClasses((prev) => prev.map((c) => (c.id === classId ? data.class : c)));
   }
 
+  async function resetAll() {
+    if (
+      !window.confirm(
+        "Reset ALL scores, ratings, and session state for every class? Rosters stay as they are. This can't be undone."
+      )
+    ) {
+      return;
+    }
+    await apiWrite("DELETE", "/api/reset-all");
+    toast.success("All scoring data reset across every class");
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Setup</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          The 6 classes are ready to go with a full roster - rename anyone, shuffle in fresh
-          names, or add and remove teams and members as your real roster comes in.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Setup</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            The 6 classes are ready to go with a full roster - rename anyone, shuffle in fresh
+            names, or add and remove teams and members as your real roster comes in.
+          </p>
+        </div>
+        <Button variant="outline" className="text-destructive hover:text-destructive shrink-0" onClick={resetAll}>
+          <AlertTriangle className="size-4" /> Reset all data
+        </Button>
       </div>
 
       <div className="space-y-3">
         {classes.map((c) => (
           <Card key={c.id} className="overflow-hidden py-0">
-            <button
-              onClick={() => toggleExpand(c.id)}
-              className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-accent/40 transition-colors"
-            >
-              <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between px-5 py-4 gap-3">
+              <button
+                onClick={() => toggleExpand(c.id)}
+                className="flex-1 flex items-center gap-3 text-left hover:opacity-70 transition-opacity min-w-0"
+              >
                 {expanded[c.id] ? (
-                  <ChevronDown className="size-4 text-muted-foreground" />
+                  <ChevronDown className="size-4 text-muted-foreground shrink-0" />
                 ) : (
-                  <ChevronRight className="size-4 text-muted-foreground" />
+                  <ChevronRight className="size-4 text-muted-foreground shrink-0" />
                 )}
-                <div>
+                <div className="min-w-0">
                   <p className="font-medium">{c.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {c.reviewer_name ? `${c.reviewer_name} · ` : ""}
                     {c.headcount} students
                   </p>
                 </div>
+              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Link href={`/score/${c.id}`}>
+                  <Button variant="outline" size="sm">
+                    <ClipboardList className="size-3.5" /> Score
+                  </Button>
+                </Link>
+                <Link href={`/stats/${c.id}`}>
+                  <Button variant="outline" size="icon" className="size-8" title="Stats">
+                    <BarChart3 className="size-4" />
+                  </Button>
+                </Link>
+                <a href={`/api/export?classId=${c.id}`}>
+                  <Button variant="outline" size="icon" className="size-8" title="Export .xlsx">
+                    <Download className="size-4" />
+                  </Button>
+                </a>
+                <Badge variant="secondary" className="cursor-pointer" onClick={() => toggleExpand(c.id)}>
+                  {expanded[c.id] ? "Hide" : "Manage roster"}
+                </Badge>
               </div>
-              <Badge variant="secondary">{expanded[c.id] ? "Hide" : "Manage roster"}</Badge>
-            </button>
+            </div>
             {expanded[c.id] && (
               <CardContent className="border-t pt-5 pb-5 space-y-5">
                 <ClassSettings classData={expanded[c.id]} onUpdate={(d) => setClassData(c.id, d)} />

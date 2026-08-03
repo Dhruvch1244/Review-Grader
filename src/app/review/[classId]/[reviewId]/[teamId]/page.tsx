@@ -169,10 +169,9 @@ export default function ReviewSessionPage() {
     Math.max(0, ((session.timer_duration_seconds - remainingSeconds) / session.timer_duration_seconds) * 100)
   );
   const timerColor = remainingSeconds > 300 ? "text-emerald-600" : remainingSeconds > 60 ? "text-amber-600" : "text-red-600";
-  const currentStudent = team.students[session.current_student_index] ?? null;
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto">
+    <div className={`space-y-6 mx-auto ${session.phase === "individual" ? "max-w-6xl" : "max-w-3xl"}`}>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -257,53 +256,46 @@ export default function ReviewSessionPage() {
         </>
       )}
 
-      {session.phase === "individual" && currentStudent && (
-        <Card>
-          <CardHeader className="flex-row items-center justify-between">
-            <CardTitle className="text-sm">
-              Individual Q&amp;A - {currentStudent.name} ({session.current_student_index + 1}/{team.students.length})
-            </CardTitle>
-            <div className="flex gap-1.5">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={session.current_student_index === 0}
-                onClick={() => patchSession({ current_student_index: session.current_student_index - 1 })}
-              >
-                Prev
-              </Button>
-              {session.current_student_index < team.students.length - 1 ? (
-                <Button
-                  size="sm"
-                  onClick={() => patchSession({ current_student_index: session.current_student_index + 1 })}
-                >
-                  Next student
-                </Button>
-              ) : (
-                <Button size="sm" onClick={() => patchSession({ phase: "final" })}>
-                  Finish Q&amp;A
-                </Button>
-              )}
+      {session.phase === "individual" && (
+        <>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold">Individual Q&amp;A - everyone at once</h2>
+              <p className="text-xs text-muted-foreground">
+                Each person got a different 5-question set weighted toward the team&apos;s weak
+                spots. Rate as you go through each person, then finish whenever you&apos;re ready.
+              </p>
             </div>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-2">
-              Final so far:{" "}
-              <strong>
-                {teamAvg !== null && typeof individualScores[studentKey(currentStudent.id)]?.delta === "number"
-                  ? Math.round((teamAvg + individualScores[studentKey(currentStudent.id)]!.delta!) * 100) / 100
-                  : teamAvg ?? "—"}
-              </strong>
-            </p>
-            <QuestionSession
-              studentId={currentStudent.id}
-              teamId={teamId}
-              reviewId={reviewId}
-              onAppendNotes={() => {}}
-              onDeltaChange={(d) => setDeltaLocal(currentStudent.id, d)}
-            />
-          </CardContent>
-        </Card>
+            <Button onClick={() => patchSession({ phase: "final" })}>Finish Q&amp;A</Button>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {team.students.map((s) => {
+              const final =
+                teamAvg !== null && typeof individualScores[studentKey(s.id)]?.delta === "number"
+                  ? Math.round((teamAvg + individualScores[studentKey(s.id)]!.delta!) * 100) / 100
+                  : teamAvg;
+              return (
+                <Card key={s.id}>
+                  <CardHeader className="pb-1">
+                    <CardTitle className="text-sm">{s.name}</CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                      Final so far: <strong>{final ?? "—"}</strong>
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <QuestionSession
+                      studentId={s.id}
+                      teamId={teamId}
+                      reviewId={reviewId}
+                      onAppendNotes={() => {}}
+                      onDeltaChange={(d) => setDeltaLocal(s.id, d)}
+                    />
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {session.phase === "final" && (
