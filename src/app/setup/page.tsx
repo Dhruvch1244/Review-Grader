@@ -1,17 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { apiGet, apiWrite } from "@/lib/api-client";
-import type { ClassRow, ClassData, TeamWithStudents } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
+import { Plus, Trash2, Shuffle, ChevronDown, ChevronRight, BarChart3, Download, ClipboardList, AlertTriangle } from "lucide-react";
+import { generateIndianNames } from "@/lib/indian-names";
+import type { ClassRow, ClassData, TeamWithStudents, StudentRow } from "@/lib/types";
 
 export default function SetupPage() {
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [expanded, setExpanded] = useState<Record<string, ClassData>>({});
-  const [name, setName] = useState("");
-  const [reviewerName, setReviewerName] = useState("");
-  const [headcount, setHeadcount] = useState(22);
-  const [teamSize, setTeamSize] = useState(6);
-  const [creating, setCreating] = useState(false);
 
   async function refreshList() {
     const data = await apiGet<ClassRow[]>("/api/classes");
@@ -22,23 +26,6 @@ export default function SetupPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch-on-mount
     refreshList();
   }, []);
-
-  async function createClass(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim() || !headcount) return;
-    setCreating(true);
-    const created = await apiWrite<ClassData>("POST", "/api/classes", {
-      name: name.trim(),
-      reviewerName: reviewerName.trim() || undefined,
-      headcount,
-      teamSize,
-    });
-    setName("");
-    setReviewerName("");
-    setCreating(false);
-    await refreshList();
-    if (created?.class?.id) setExpanded((prev) => ({ ...prev, [created.class.id]: created }));
-  }
 
   async function toggleExpand(classId: string) {
     if (expanded[classId]) {
@@ -53,90 +40,81 @@ export default function SetupPage() {
 
   function setClassData(classId: string, data: ClassData) {
     setExpanded((prev) => ({ ...prev, [classId]: data }));
+    setClasses((prev) => prev.map((c) => (c.id === classId ? data.class : c)));
+  }
+
+  async function resetAll() {
+    if (
+      !window.confirm(
+        "Reset ALL scores, ratings, and session state for every class? Rosters stay as they are. This can't be undone."
+      )
+    ) {
+      return;
+    }
+    await apiWrite("DELETE", "/api/reset-all");
+    toast.success("All scoring data reset across every class");
   }
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-xl font-semibold">Setup</h1>
-        <p className="text-sm text-black/60 dark:text-white/60 mt-1">
-          Add each of the 6 classes with a headcount. Teams of {teamSize} are generated
-          automatically - paste the whole roster in one go below and it lands in the right
-          teams, or fill it in later.
-        </p>
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Setup</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            The 6 classes are ready to go with a full roster - rename anyone, shuffle in fresh
+            names, or add and remove teams and members as your real roster comes in.
+          </p>
+        </div>
+        <Button variant="outline" className="text-destructive hover:text-destructive shrink-0" onClick={resetAll}>
+          <AlertTriangle className="size-4" /> Reset all data
+        </Button>
       </div>
 
-      <form onSubmit={createClass} className="border border-black/10 dark:border-white/10 rounded-lg p-4 space-y-3">
-        <h2 className="text-sm font-medium">Add a class</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="text-sm">
-            <span className="block text-black/60 dark:text-white/60 mb-1">Class name</span>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Class A"
-              className="w-full border border-black/15 dark:border-white/20 rounded-md px-2 py-1.5 bg-transparent"
-              required
-            />
-          </label>
-          <label className="text-sm">
-            <span className="block text-black/60 dark:text-white/60 mb-1">Reviewer</span>
-            <input
-              value={reviewerName}
-              onChange={(e) => setReviewerName(e.target.value)}
-              placeholder="optional"
-              className="w-full border border-black/15 dark:border-white/20 rounded-md px-2 py-1.5 bg-transparent"
-            />
-          </label>
-          <label className="text-sm">
-            <span className="block text-black/60 dark:text-white/60 mb-1">Headcount</span>
-            <input
-              type="number"
-              min={1}
-              value={headcount}
-              onChange={(e) => setHeadcount(Number(e.target.value))}
-              className="w-full border border-black/15 dark:border-white/20 rounded-md px-2 py-1.5 bg-transparent"
-              required
-            />
-          </label>
-          <label className="text-sm">
-            <span className="block text-black/60 dark:text-white/60 mb-1">Team size</span>
-            <input
-              type="number"
-              min={1}
-              value={teamSize}
-              onChange={(e) => setTeamSize(Number(e.target.value))}
-              className="w-full border border-black/15 dark:border-white/20 rounded-md px-2 py-1.5 bg-transparent"
-            />
-          </label>
-        </div>
-        <button
-          type="submit"
-          disabled={creating}
-          className="bg-black text-white dark:bg-white dark:text-black text-sm font-medium px-4 py-2 rounded-md disabled:opacity-50"
-        >
-          {creating ? "Adding…" : "Add class"}
-        </button>
-      </form>
-
-      <div className="space-y-4">
+      <div className="space-y-3">
         {classes.map((c) => (
-          <div key={c.id} className="border border-black/10 dark:border-white/10 rounded-lg">
-            <button
-              onClick={() => toggleExpand(c.id)}
-              className="w-full flex items-center justify-between px-4 py-3 text-left"
-            >
-              <div>
-                <p className="font-medium">{c.name}</p>
-                <p className="text-xs text-black/50 dark:text-white/50">
-                  {c.reviewer_name ? `${c.reviewer_name} · ` : ""}
-                  {c.headcount} students
-                </p>
+          <Card key={c.id} className="overflow-hidden py-0">
+            <div className="flex items-center justify-between px-5 py-4 gap-3">
+              <button
+                onClick={() => toggleExpand(c.id)}
+                className="flex-1 flex items-center gap-3 text-left hover:opacity-70 transition-opacity min-w-0"
+              >
+                {expanded[c.id] ? (
+                  <ChevronDown className="size-4 text-muted-foreground shrink-0" />
+                ) : (
+                  <ChevronRight className="size-4 text-muted-foreground shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <p className="font-medium">{c.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {c.reviewer_name ? `${c.reviewer_name} · ` : ""}
+                    {c.headcount} students
+                  </p>
+                </div>
+              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Link href={`/score/${c.id}`}>
+                  <Button variant="outline" size="sm">
+                    <ClipboardList className="size-3.5" /> Score
+                  </Button>
+                </Link>
+                <Link href={`/stats/${c.id}`}>
+                  <Button variant="outline" size="icon" className="size-8" title="Stats">
+                    <BarChart3 className="size-4" />
+                  </Button>
+                </Link>
+                <a href={`/api/export?classId=${c.id}`}>
+                  <Button variant="outline" size="icon" className="size-8" title="Export .xlsx">
+                    <Download className="size-4" />
+                  </Button>
+                </a>
+                <Badge variant="secondary" className="cursor-pointer" onClick={() => toggleExpand(c.id)}>
+                  {expanded[c.id] ? "Hide" : "Manage roster"}
+                </Badge>
               </div>
-              <span className="text-xs text-black/40">{expanded[c.id] ? "Hide" : "Manage roster"}</span>
-            </button>
+            </div>
             {expanded[c.id] && (
-              <div className="border-t border-black/10 dark:border-white/10 p-4 space-y-4">
+              <CardContent className="border-t pt-5 pb-5 space-y-5">
+                <ClassSettings classData={expanded[c.id]} onUpdate={(d) => setClassData(c.id, d)} />
                 <BulkImport classData={expanded[c.id]} onUpdate={(d) => setClassData(c.id, d)} />
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {expanded[c.id].teams.map((team) => (
@@ -148,25 +126,68 @@ export default function SetupPage() {
                     />
                   ))}
                 </div>
-              </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      await apiWrite("POST", `/api/classes/${c.id}/teams`, {});
+                      const data = await apiGet<ClassData>(`/api/classes/${c.id}`);
+                      if (data) setClassData(c.id, data);
+                    }}
+                  >
+                    <Plus className="size-3.5" /> Add team
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      const totalSlots = expanded[c.id].teams.reduce((n, t) => n + t.students.length, 0);
+                      const names = generateIndianNames(totalSlots);
+                      const res = await apiWrite<ClassData>("PATCH", `/api/classes/${c.id}/autofill`, { names });
+                      setClassData(c.id, { class: res.class, teams: res.teams });
+                      toast.success("Shuffled in a fresh set of names");
+                    }}
+                  >
+                    <Shuffle className="size-3.5" /> Shuffle names
+                  </Button>
+                </div>
+              </CardContent>
             )}
-          </div>
+          </Card>
         ))}
       </div>
     </div>
   );
 }
 
-function BulkImport({
-  classData,
-  onUpdate,
-}: {
-  classData: ClassData;
-  onUpdate: (data: ClassData) => void;
-}) {
+function ClassSettings({ classData, onUpdate }: { classData: ClassData; onUpdate: (data: ClassData) => void }) {
+  const [reviewer, setReviewer] = useState(classData.class.reviewer_name ?? "");
+
+  async function commitReviewer() {
+    await apiWrite("PATCH", `/api/classes/${classData.class.id}`, { reviewerName: reviewer });
+    onUpdate({ ...classData, class: { ...classData.class, reviewer_name: reviewer || null } });
+  }
+
+  return (
+    <div className="flex items-end gap-3">
+      <label className="text-sm">
+        <span className="block text-muted-foreground mb-1">Reviewer</span>
+        <Input
+          value={reviewer}
+          onChange={(e) => setReviewer(e.target.value)}
+          onBlur={commitReviewer}
+          placeholder="assign a reviewer"
+          className="w-56"
+        />
+      </label>
+    </div>
+  );
+}
+
+function BulkImport({ classData, onUpdate }: { classData: ClassData; onUpdate: (data: ClassData) => void }) {
   const [paste, setPaste] = useState("");
   const [saving, setSaving] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
   const totalSlots = classData.teams.reduce((n, t) => n + t.students.length, 0);
 
   async function apply() {
@@ -176,7 +197,6 @@ function BulkImport({
       .filter(Boolean);
     if (names.length === 0) return;
     setSaving(true);
-    setResult(null);
     const res = await apiWrite<ClassData & { applied: number; totalSlots: number }>(
       "PATCH",
       `/api/classes/${classData.class.id}/autofill`,
@@ -188,7 +208,7 @@ function BulkImport({
     setPaste("");
     if (typeof res.applied === "number") {
       const leftover = names.length - res.applied;
-      setResult(
+      toast.success(
         leftover > 0
           ? `Applied ${res.applied} of ${res.totalSlots} slots - ${leftover} name(s) had no team slot left.`
           : `Applied ${res.applied} of ${res.totalSlots} slots.`
@@ -197,31 +217,27 @@ function BulkImport({
   }
 
   return (
-    <div className="border border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20 rounded-md p-3">
-      <p className="text-sm font-medium mb-1">Bulk-import this class&apos;s roster</p>
-      <p className="text-xs text-black/60 dark:text-white/60 mb-2">
-        Paste all {totalSlots} names in one go, one per line, in the order you want them filled -
-        Team 1&apos;s slots first, then Team 2&apos;s, and so on. Hit apply once and every team
-        updates together.
-      </p>
-      <textarea
-        value={paste}
-        onChange={(e) => setPaste(e.target.value)}
-        placeholder={`One name per line (up to ${totalSlots})`}
-        rows={5}
-        className="w-full text-sm border border-black/15 dark:border-white/20 rounded-md px-2 py-1.5 bg-white dark:bg-black/30 mb-2"
-      />
-      <div className="flex items-center gap-3">
-        <button
-          onClick={apply}
-          disabled={saving}
-          className="text-sm bg-black text-white dark:bg-white dark:text-black px-3 py-1.5 rounded-md disabled:opacity-50"
-        >
+    <Card className="bg-accent/30 border-dashed">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">Bulk-import this class&apos;s roster</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Paste all {totalSlots} names in one go, one per line, in the order you want them filled -
+          Team 1&apos;s slots first, then Team 2&apos;s, and so on.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <textarea
+          value={paste}
+          onChange={(e) => setPaste(e.target.value)}
+          placeholder={`One name per line (up to ${totalSlots})`}
+          rows={4}
+          className="w-full text-sm border rounded-md px-3 py-2 bg-background"
+        />
+        <Button size="sm" onClick={apply} disabled={saving}>
           {saving ? "Applying…" : "Apply to all teams"}
-        </button>
-        {result && <p className="text-xs text-black/60 dark:text-white/60">{result}</p>}
-      </div>
-    </div>
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -256,7 +272,6 @@ function TeamRoster({
     if (targetTeamId === team.id) return;
     const student = team.students.find((s) => s.id === studentId);
     if (!student) return;
-    // optimistic local move between the two team lists
     const targetTeam = classData.teams.find((t) => t.id === targetTeamId);
     onUpdate({
       ...classData,
@@ -269,36 +284,65 @@ function TeamRoster({
     await apiWrite("PATCH", `/api/students/${studentId}/team`, { teamId: targetTeamId }, `move-${studentId}`);
   }
 
+  async function addMember() {
+    const student = await apiWrite<StudentRow>("POST", `/api/teams/${team.id}/students`, {});
+    patchTeamLocally({ ...team, students: [...team.students, student] });
+  }
+
+  async function removeMember(studentId: string) {
+    patchTeamLocally({ ...team, students: team.students.filter((s) => s.id !== studentId) });
+    await apiWrite("DELETE", `/api/students/${studentId}`, undefined, `delete-student-${studentId}`);
+  }
+
+  async function removeTeam() {
+    onUpdate({ ...classData, teams: classData.teams.filter((t) => t.id !== team.id) });
+    await apiWrite("DELETE", `/api/teams/${team.id}`, undefined, `delete-team-${team.id}`);
+  }
+
   return (
-    <div className="border border-black/10 dark:border-white/10 rounded-md p-3">
-      <p className="text-sm font-medium mb-2">{team.name}</p>
-      <div className="space-y-1.5">
+    <Card className="gap-2">
+      <CardHeader className="flex-row items-center justify-between pb-1">
+        <CardTitle className="text-sm">{team.name}</CardTitle>
+        <Button variant="ghost" size="icon" className="size-6 text-muted-foreground hover:text-destructive" onClick={removeTeam}>
+          <Trash2 className="size-3.5" />
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-1.5">
         {team.students.map((s) => (
           <div key={s.id} className="flex items-center gap-1.5">
-            <input
+            <Input
               value={s.name}
               onChange={(e) => renameLocally(s.id, e.target.value)}
               onBlur={(e) => commitRename(s.id, e.target.value)}
-              className="flex-1 min-w-0 text-sm border border-black/15 dark:border-white/20 rounded-md px-2 py-1 bg-transparent"
+              className="h-8 text-sm"
             />
-            <select
-              value={team.id}
-              onChange={(e) => moveStudent(s.id, e.target.value)}
-              title="Move to a different team"
-              className="text-xs border border-black/15 dark:border-white/20 rounded-md px-1 py-1 bg-transparent"
+            <Select value={team.id} onValueChange={(v) => v && moveStudent(s.id, v)}>
+              <SelectTrigger size="sm" className="w-[92px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {classData.teams.map((t) => (
+                  <SelectItem key={t.id} value={t.id} className="text-xs">
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+              onClick={() => removeMember(s.id)}
             >
-              {classData.teams.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+              <Trash2 className="size-3.5" />
+            </Button>
           </div>
         ))}
-        {team.students.length === 0 && (
-          <p className="text-xs text-black/40 italic">No one on this team yet.</p>
-        )}
-      </div>
-    </div>
+        {team.students.length === 0 && <p className="text-xs text-muted-foreground italic">No one on this team yet.</p>}
+        <Button variant="ghost" size="sm" className="text-xs text-muted-foreground w-full justify-start" onClick={addMember}>
+          <Plus className="size-3.5" /> Add member
+        </Button>
+      </CardContent>
+    </Card>
   );
 }

@@ -74,6 +74,7 @@ export function buildExportRows(
         ReviewNumber: review.number,
         ReviewLabel: review.label,
         Delta: is.delta,
+        Grace: is.grace,
         Notes: is.notes,
       };
     })

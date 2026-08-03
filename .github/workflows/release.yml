@@ -1,0 +1,79 @@
+name: Windows Release Build
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-zip:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the app (standalone output)
+        run: npm run build
+
+      - name: Assemble the standalone release folder
+        shell: pwsh
+        run: |
+          $release = "release"
+          New-Item -ItemType Directory -Force -Path $release | Out-Null
+
+          # .next/standalone already contains server.js, package.json and a
+          # pruned production node_modules (including better-sqlite3's
+          # Windows-built native binary, since this whole job runs on
+          # windows-latest) - static assets and /public aren't included by
+          # Next.js in standalone mode, so those get copied in by hand.
+          Copy-Item -Recurse -Force ".next/standalone/*" "$release/"
+          New-Item -ItemType Directory -Force -Path "$release/public" | Out-Null
+          Copy-Item -Recurse -Force "public/*" "$release/public/"
+          New-Item -ItemType Directory -Force -Path "$release/.next/static" | Out-Null
+          Copy-Item -Recurse -Force ".next/static/*" "$release/.next/static/"
+
+      - name: Download a portable Node.js runtime (latest v22.x)
+        shell: pwsh
+        run: |
+          $index = Invoke-RestMethod -Uri "https://nodejs.org/dist/index.json"
+          $latest22 = $index | Where-Object { $_.version -like "v22.*" } | Select-Object -First 1
+          $nodeVersion = $latest22.version
+          Write-Host "Bundling portable Node.js $nodeVersion"
+          $url = "https://nodejs.org/dist/$nodeVersion/node-$nodeVersion-win-x64.zip"
+          Invoke-WebRequest -Uri $url -OutFile node-portable.zip
+          Expand-Archive -Path node-portable.zip -DestinationPath node-extracted
+          New-Item -ItemType Directory -Force -Path "release/node" | Out-Null
+          Copy-Item "node-extracted/node-$nodeVersion-win-x64/node.exe" "release/node/node.exe"
+
+      - name: Add the Windows launcher
+        shell: pwsh
+        run: |
+          Copy-Item scripts/windows/start.bat release/start.bat
+          Copy-Item scripts/windows/README-WINDOWS.txt release/README-WINDOWS.txt
+
+      - name: Zip it up
+        shell: pwsh
+        run: Compress-Archive -Path release/* -DestinationPath review-grader-windows.zip
+
+      - name: Attach to the GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: review-grader-windows.zip
+
+      - name: Upload as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-grader-windows
+          path: review-grader-windows.zip

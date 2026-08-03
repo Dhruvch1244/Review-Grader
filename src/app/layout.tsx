@@ -4,9 +4,12 @@ import Link from "next/link";
 import "./globals.css";
 import SyncStatus from "@/components/SyncStatus";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
+import ThemeSync from "@/components/ThemeSync";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
-  variable: "--font-geist-sans",
+  variable: "--font-sans",
   subsets: ["latin"],
 });
 
@@ -25,6 +28,13 @@ export const viewport = {
   themeColor: "#171717",
 };
 
+const NAV_LINKS = [
+  { href: "/setup", label: "Setup" },
+  { href: "/questions", label: "Question bank" },
+  { href: "/normalize", label: "Normalize" },
+  { href: "/merge", label: "Merge" },
+];
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -35,25 +45,34 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-full flex flex-col bg-muted">
+        <ThemeSync />
         <ServiceWorkerRegister />
-        <header className="border-b border-black/10 dark:border-white/15">
-          <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-            <nav className="flex items-center gap-5 text-sm font-medium">
-              <Link href="/" className="font-semibold">
-                Review Grader
-              </Link>
-              <Link href="/setup" className="text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white">
-                Setup
-              </Link>
-              <Link href="/merge" className="text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white">
-                Merge
-              </Link>
-            </nav>
-            <SyncStatus />
-          </div>
-        </header>
-        <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-6">{children}</main>
+        <TooltipProvider delay={200}>
+          <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-md">
+            <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between gap-4">
+              <nav className="flex items-center gap-6">
+                <Link href="/" className="font-semibold tracking-tight text-[15px]">
+                  Review Grader
+                </Link>
+                <div className="hidden sm:flex items-center gap-1">
+                  {NAV_LINKS.map((l) => (
+                    <Link
+                      key={l.href}
+                      href={l.href}
+                      className="text-sm text-muted-foreground hover:text-foreground px-2.5 py-1.5 rounded-md hover:bg-accent transition-colors"
+                    >
+                      {l.label}
+                    </Link>
+                  ))}
+                </div>
+              </nav>
+              <SyncStatus />
+            </div>
+          </header>
+          <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-8">{children}</main>
+          <Toaster position="bottom-right" />
+        </TooltipProvider>
       </body>
     </html>
   );

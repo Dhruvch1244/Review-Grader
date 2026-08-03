@@ -14,9 +14,6 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  PieChart,
-  Pie,
-  Cell,
   RadarChart,
   PolarGrid,
   PolarAngleAxis,
@@ -27,6 +24,9 @@ import {
   LabelList,
 } from "recharts";
 import { apiGet } from "@/lib/api-client";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { buildExportRows } from "@/lib/export-rows";
 import {
   teamOverallAverages,
@@ -37,7 +37,7 @@ import {
   criteriaHeatmap,
   scoreHistogram,
   teamScatterData,
-  scoreHealthCounts,
+  scoreHealthByReview,
   radarDataForReview,
 } from "@/lib/stats-utils";
 import { CATEGORICAL_LIGHT, CATEGORICAL_DARK, CHROME, STATUS, sequentialBlue, usePrefersDark } from "@/lib/chart-colors";
@@ -90,7 +90,7 @@ export default function StatsPage() {
   const heatmapReview = reviewFocus === "all" ? reviews[reviews.length - 1] : reviews.find((r) => r.number === reviewFocus);
 
   if (!classData || !rows || reviews.length === 0) {
-    return <p className="text-sm text-black/50">Loading…</p>;
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
 
   const teamAverages = teamOverallAverages(classData, rows.teamScoreRows);
@@ -100,7 +100,7 @@ export default function StatsPage() {
   const categoryTrend = categoryBreakdownByReview(reviews, rows.teamScoreRows);
   const histogram = scoreHistogram(rows.teamScoreRows, rows.individualScoreRows);
   const scatter = teamScatterData(classData, rows.teamScoreRows, rows.individualScoreRows);
-  const health = scoreHealthCounts(rows.teamScoreRows, reviewFocus);
+  const health = scoreHealthByReview(reviews, rows.teamScoreRows);
   const heatmap = heatmapReview ? criteriaHeatmap(classData, heatmapReview, rows.teamScoreRows) : null;
   const radar = heatmapReview ? radarDataForReview(heatmapReview, rows.teamScoreRows, radarTeams) : null;
 
@@ -127,13 +127,13 @@ export default function StatsPage() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">{classData.class.name} - Stats</h1>
-          <p className="text-sm text-black/60 dark:text-white/60">
+          <h1 className="text-2xl font-semibold tracking-tight">{classData.class.name} - Stats</h1>
+          <p className="text-sm text-muted-foreground">
             {classData.class.reviewer_name ?? "No reviewer set"}
           </p>
         </div>
-        <Link href={`/score/${classData.class.id}`} className="text-sm text-blue-600 dark:text-blue-400 hover:underline">
-          Back to scoring
+        <Link href={`/score/${classData.class.id}`}>
+          <Button variant="outline">Back to scoring</Button>
         </Link>
       </div>
 
@@ -257,32 +257,22 @@ export default function StatsPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* 7. Score health donut */}
-        <ChartCard title="Score health" subtitle={reviewFocus === "all" ? "All reviews" : `Review R${reviewFocus}`}>
-          {health.every((h) => h.value === 0) ? (
-            <EmptyState message="No criteria scored yet for this scope." />
+        {/* 7. Score health across reviews */}
+        <ChartCard title="Score health" subtitle="Low (1-2) / Mid (3) / High (4-5) criteria scores, R1 → R4">
+          {health.every((h) => h.Low + h.Mid + h.High === 0) ? (
+            <EmptyState message="No criteria scored yet." />
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie
-                  data={health.filter((h) => h.value > 0)}
-                  dataKey="value"
-                  nameKey="label"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={2}
-                  label={({ name, value }) => `${name}: ${value}`}
-                  labelLine={false}
-                >
-                  {health
-                    .filter((h) => h.value > 0)
-                    .map((h) => (
-                      <Cell key={h.label} fill={STATUS[h.color]} />
-                    ))}
-                </Pie>
+              <BarChart data={health} margin={{ top: 8, right: 16, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={chrome.grid} vertical={false} />
+                <XAxis dataKey="review" tick={axisStyle} axisLine={{ stroke: chrome.baseline }} tickLine={false} />
+                <YAxis allowDecimals={false} tick={axisStyle} axisLine={{ stroke: chrome.baseline }} tickLine={false} />
                 <Tooltip contentStyle={tooltipStyle} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-              </PieChart>
+                <Bar dataKey="Low" stackId="health" fill={STATUS.critical} maxBarSize={48} />
+                <Bar dataKey="Mid" stackId="health" fill={STATUS.warning} maxBarSize={48} />
+                <Bar dataKey="High" stackId="health" fill={STATUS.good} radius={[4, 4, 0, 0]} maxBarSize={48} />
+              </BarChart>
             </ResponsiveContainer>
           )}
         </ChartCard>
@@ -326,28 +316,32 @@ export default function StatsPage() {
           </ScatterChart>
         </ResponsiveContainer>
         )}
-        <p className="text-xs text-black/40 dark:text-white/40 mt-1">
+        <p className="text-xs text-muted-foreground mt-1">
           A team with no individual scores yet plots at delta = 0.
         </p>
       </ChartCard>
 
       {/* Review-scoped section: heatmap + radar */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-black/50 dark:text-white/50">Focus review for the charts below:</span>
-        <button
+        <span className="text-xs text-muted-foreground">Focus review for the charts below:</span>
+        <Button
+          size="sm"
+          variant={reviewFocus === "all" ? "default" : "outline"}
+          className="h-7 text-xs"
           onClick={() => setReviewFocus("all")}
-          className={`text-xs px-2 py-1 rounded-md border ${reviewFocus === "all" ? "bg-black text-white dark:bg-white dark:text-black border-transparent" : "border-black/15 dark:border-white/20"}`}
         >
           Latest
-        </button>
+        </Button>
         {reviews.map((r) => (
-          <button
+          <Button
             key={r.id}
+            size="sm"
+            variant={reviewFocus === r.number ? "default" : "outline"}
+            className="h-7 text-xs"
             onClick={() => setReviewFocus(r.number)}
-            className={`text-xs px-2 py-1 rounded-md border ${reviewFocus === r.number ? "bg-black text-white dark:bg-white dark:text-black border-transparent" : "border-black/15 dark:border-white/20"}`}
           >
             R{r.number}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -370,15 +364,9 @@ export default function StatsPage() {
                 {heatmap.rows.map((row) => (
                   <tr key={row.criterion}>
                     <td className="p-1.5 max-w-xs align-top">
-                      <span
-                        className={`inline-block text-[9px] uppercase tracking-wide mr-1 px-1 py-0.5 rounded ${
-                          row.category === "Security"
-                            ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-                            : "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300"
-                        }`}
-                      >
+                      <Badge variant={row.category === "Security" ? "secondary" : "outline"} className="mr-1 h-4 px-1 text-[9px] uppercase tracking-wide align-middle">
                         {row.category}
-                      </span>
+                      </Badge>
                       {row.criterion}
                     </td>
                     {row.values.map((v, i) => (
@@ -446,7 +434,7 @@ export default function StatsPage() {
               ))}
             </RadarChart>
           </ResponsiveContainer>
-          <p className="text-xs text-black/40 dark:text-white/40 mt-1">Unscored criteria show as 0.</p>
+          <p className="text-xs text-muted-foreground mt-1">Unscored criteria show as 0.</p>
         </ChartCard>
       )}
 
@@ -454,7 +442,7 @@ export default function StatsPage() {
       <ChartCard title="All students" subtitle="Raw numbers behind every chart above">
         <div className="overflow-x-auto">
           <table className="text-sm w-full">
-            <thead className="bg-black/5 dark:bg-white/5">
+            <thead className="bg-muted/50">
               <tr>
                 <th className="text-left px-3 py-2 font-medium">Team</th>
                 <th className="text-left px-3 py-2 font-medium">Student</th>
@@ -464,7 +452,7 @@ export default function StatsPage() {
             </thead>
             <tbody>
               {leaderboard.map((s) => (
-                <tr key={`${s.team}-${s.student}`} className="border-t border-black/5 dark:border-white/10">
+                <tr key={`${s.team}-${s.student}`} className="border-t border-t">
                   <td className="px-3 py-2">{s.team}</td>
                   <td className="px-3 py-2">{s.student}</td>
                   <td className="px-3 py-2 text-right">{s.reviewsScored}/4</td>
@@ -481,16 +469,18 @@ export default function StatsPage() {
 
 function StatTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border border-black/10 dark:border-white/10 rounded-lg p-3">
-      <p className="text-2xl font-semibold tabular-nums">{value}</p>
-      <p className="text-xs text-black/50 dark:text-white/50 mt-0.5">{label}</p>
-    </div>
+    <Card className="py-3">
+      <CardContent className="px-4">
+        <p className="text-2xl font-semibold tabular-nums">{value}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+      </CardContent>
+    </Card>
   );
 }
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="h-[180px] flex items-center justify-center text-sm text-black/40 dark:text-white/40 border border-dashed border-black/10 dark:border-white/15 rounded-md">
+    <div className="h-[180px] flex items-center justify-center text-sm text-muted-foreground border border-dashed rounded-md">
       {message}
     </div>
   );
@@ -506,10 +496,12 @@ function ChartCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="border border-black/10 dark:border-white/10 rounded-lg p-4">
-      <h2 className="text-sm font-semibold">{title}</h2>
-      {subtitle && <p className="text-xs text-black/50 dark:text-white/50 mb-2">{subtitle}</p>}
-      {children}
-    </section>
+    <Card className="min-w-0">
+      <CardHeader className="pb-0">
+        <CardTitle className="text-sm">{title}</CardTitle>
+        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
   );
 }

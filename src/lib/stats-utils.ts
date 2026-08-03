@@ -140,20 +140,23 @@ export function teamScatterData(
   });
 }
 
-export function scoreHealthCounts(
-  teamScoreRows: TeamScoreExportRow[],
-  reviewNumber: number | "all"
-): { label: string; value: number; color: "good" | "warning" | "critical" }[] {
-  const rows = reviewNumber === "all" ? teamScoreRows : teamScoreRows.filter((r) => r.ReviewNumber === reviewNumber);
-  const scored = rows.filter((r) => r.Score !== null && r.Score !== undefined);
-  const low = scored.filter((r) => (r.Score as number) <= 2).length;
-  const mid = scored.filter((r) => r.Score === 3).length;
-  const high = scored.filter((r) => (r.Score as number) >= 4).length;
-  return [
-    { label: "High (4-5)", value: high, color: "good" },
-    { label: "Mid (3)", value: mid, color: "warning" },
-    { label: "Low (1-2)", value: low, color: "critical" },
-  ];
+/** Low/Mid/High criterion-score counts per review, so the health of a class's
+ * scoring shows as a trend across R1-R4 rather than one combined snapshot. */
+export function scoreHealthByReview(
+  reviews: ReviewWithCriteria[],
+  teamScoreRows: TeamScoreExportRow[]
+): { review: string; Low: number; Mid: number; High: number }[] {
+  return reviews.map((r) => {
+    const scored = teamScoreRows.filter(
+      (tr) => tr.ReviewNumber === r.number && tr.Score !== null && tr.Score !== undefined
+    );
+    return {
+      review: `R${r.number}`,
+      Low: scored.filter((tr) => (tr.Score as number) <= 2).length,
+      Mid: scored.filter((tr) => tr.Score === 3).length,
+      High: scored.filter((tr) => (tr.Score as number) >= 4).length,
+    };
+  });
 }
 
 export interface RadarSeries {

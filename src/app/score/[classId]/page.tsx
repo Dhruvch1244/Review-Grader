@@ -5,6 +5,11 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { apiGet, apiWrite } from "@/lib/api-client";
 import QuestionSession from "@/components/QuestionSession";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { PlayCircle, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 import type {
   ClassData,
   ReviewDef,
@@ -23,6 +28,7 @@ export default function ScorePage() {
   const [individualScores, setIndividualScores] = useState<Record<string, IndividualScoreRow>>({});
   const [reviewId, setReviewId] = useState<string>("r1");
   const [teamId, setTeamId] = useState<string | null>(null);
+  const [resetNonce, setResetNonce] = useState(0);
   const notesRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   useEffect(() => {
@@ -53,16 +59,6 @@ export default function ScorePage() {
       .filter((v): v is number => typeof v === "number");
     if (vals.length === 0) return null;
     return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
-  }, [team, review, teamScores]);
-
-  const teamScoresByCriterion = useMemo(() => {
-    const map: Record<string, TeamScoreRow | undefined> = {};
-    if (team && review) {
-      for (const c of review.criteria) {
-        map[c.id] = teamScores[`${team.id}:${review.id}:${c.id}`];
-      }
-    }
-    return map;
   }, [team, review, teamScores]);
 
   async function setCriterionScore(criterionId: string, score: number) {
@@ -113,6 +109,23 @@ export default function ScorePage() {
     );
   }
 
+  /** Syncs local state after the question-ratings endpoint has already persisted the delta server-side. */
+  function setDeltaLocal(studentId: string, delta: number | null) {
+    if (!review) return;
+    const key = `${studentId}:${review.id}`;
+    setIndividualScores((prev) => ({
+      ...prev,
+      [key]: {
+        id: key,
+        student_id: studentId,
+        review_id: review.id,
+        delta,
+        notes: prev[key]?.notes ?? null,
+        updated_at: new Date().toISOString(),
+      },
+    }));
+  }
+
   async function setIndividualNotes(studentId: string, notes: string) {
     if (!review) return;
     const key = `${studentId}:${review.id}`;
@@ -138,60 +151,62 @@ export default function ScorePage() {
     setIndividualNotes(studentId, next);
   }
 
-  if (!classData) return <p className="text-sm text-black/50">Loading…</p>;
+  async function resetTeam() {
+    if (!team) return;
+    if (!window.confirm(`Reset all scores, ratings, and session state for ${team.name}? This can't be undone.`)) {
+      return;
+    }
+    await apiWrite("DELETE", `/api/teams/${team.id}/reset`);
+    const studentIds = new Set(team.students.map((s) => s.id));
+    setTeamScores((prev) => Object.fromEntries(Object.entries(prev).filter(([, v]) => v.team_id !== team.id)));
+    setIndividualScores((prev) => Object.fromEntries(Object.entries(prev).filter(([, v]) => !studentIds.has(v.student_id))));
+    setResetNonce((n) => n + 1);
+    toast.success(`${team.name} reset`);
+  }
+
+  if (!classData) return <p className="text-sm text-muted-foreground">Loading…</p>;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">{classData.class.name}</h1>
-          <p className="text-sm text-black/60 dark:text-white/60">
-            {classData.class.reviewer_name ?? "No reviewer set"}
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">{classData.class.name}</h1>
+          <p className="text-sm text-muted-foreground">{classData.class.reviewer_name ?? "No reviewer set"}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link
-            href={`/stats/${classData.class.id}`}
-            className="text-sm border border-black/15 dark:border-white/20 px-3 py-1.5 rounded-md"
-          >
-            Stats
+          <Link href={`/stats/${classData.class.id}`}>
+            <Button variant="outline">Stats</Button>
           </Link>
-          <a
-            href={`/api/export?classId=${classData.class.id}`}
-            className="text-sm bg-black text-white dark:bg-white dark:text-black px-3 py-1.5 rounded-md"
-          >
-            Export .xlsx
+          <a href={`/api/export?classId=${classData.class.id}`}>
+            <Button>Export .xlsx</Button>
           </a>
         </div>
       </div>
 
       <div className="flex gap-2 flex-wrap">
         {reviews.map((r) => (
-          <button
+          <Button
             key={r.id}
+            variant={r.id === reviewId ? "default" : "outline"}
+            className="h-auto flex-col items-start py-1.5 px-3"
             onClick={() => setReviewId(r.id)}
-            className={`text-sm px-3 py-1.5 rounded-md border ${
-              r.id === reviewId
-                ? "bg-black text-white dark:bg-white dark:text-black border-transparent"
-                : "border-black/15 dark:border-white/20"
-            }`}
           >
-            R{r.number}: {r.label}
-            <span className="block text-[10px] opacity-70">{r.sprintRange}</span>
-          </button>
+            <span className="text-sm">R{r.number}: {r.label}</span>
+            <span className="text-[10px] opacity-70 font-normal">{r.sprintRange}</span>
+          </Button>
         ))}
       </div>
 
       <div className="flex gap-4">
         <aside className="w-48 shrink-0">
-          <p className="text-xs font-medium text-black/50 mb-2">Teams</p>
+          <p className="text-xs font-medium text-muted-foreground mb-2">Teams</p>
           <ul className="space-y-1">
             {classData.teams.map((t) => (
               <li key={t.id}>
                 <button
                   onClick={() => setTeamId(t.id)}
-                  className={`w-full text-left text-sm px-2 py-1.5 rounded-md ${
-                    t.id === teamId ? "bg-black/10 dark:bg-white/15 font-medium" : "hover:bg-black/5 dark:hover:bg-white/5"
+                  className={`w-full text-left text-sm px-2.5 py-1.5 rounded-md transition-colors ${
+                    t.id === teamId ? "bg-accent font-medium" : "hover:bg-accent/50"
                   }`}
                 >
                   {t.name}
@@ -203,116 +218,134 @@ export default function ScorePage() {
 
         {team && review && (
           <div className="flex-1 space-y-6">
-            <section className="border border-black/10 dark:border-white/10 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-semibold">Team baseline - {team.name}</h2>
-                <span className="text-sm">
-                  Avg: <strong>{teamAvg ?? "—"}</strong> / 5
-                </span>
-              </div>
-              <ul className="space-y-3">
-                {review.criteria.map((c) => {
-                  const key = `${team.id}:${review.id}:${c.id}`;
-                  const current = teamScores[key];
-                  return (
-                    <li key={key} className="border-t border-black/5 dark:border-white/10 pt-3 first:border-t-0 first:pt-0">
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="text-sm flex-1">
-                          <span
-                            className={`inline-block text-[10px] uppercase tracking-wide mr-2 px-1.5 py-0.5 rounded ${
-                              c.category === "Security"
-                                ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-                                : "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300"
-                            }`}
-                          >
-                            {c.category}
-                          </span>
-                          {c.text}
-                        </p>
-                        <div className="flex gap-1 shrink-0">
-                          {[1, 2, 3, 4, 5].map((n) => (
-                            <button
-                              key={n}
-                              onClick={() => setCriterionScore(c.id, n)}
-                              className={`w-7 h-7 text-xs rounded-md border ${
-                                current?.score === n
-                                  ? "bg-black text-white dark:bg-white dark:text-black border-transparent"
-                                  : "border-black/15 dark:border-white/20"
-                              }`}
-                            >
-                              {n}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <input
-                        defaultValue={current?.notes ?? ""}
-                        onBlur={(e) => setCriterionNotes(c.id, e.target.value)}
-                        placeholder="notes (optional)"
-                        className="mt-1.5 w-full text-xs border border-black/10 dark:border-white/15 rounded px-2 py-1 bg-transparent"
-                      />
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
+            <Card className="bg-primary/5 border-primary/20">
+              <CardContent className="flex items-center justify-between py-4">
+                <div>
+                  <p className="text-sm font-medium">Run this as a guided, timed review</p>
+                  <p className="text-xs text-muted-foreground">
+                    20-minute presentation clock, then walks through each student&apos;s Q&amp;A one at a time.
+                  </p>
+                </div>
+                <Link href={`/review/${classData.class.id}/${review.id}/${team.id}`}>
+                  <Button>
+                    <PlayCircle className="size-4" /> Start guided review
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
 
-            <section className="border border-black/10 dark:border-white/10 rounded-lg p-4">
-              <h2 className="text-sm font-semibold mb-3">Individual Q&amp;A - {review.label}</h2>
-              <ul className="space-y-3">
-                {team.students.map((s) => {
-                  const key = `${s.id}:${review.id}`;
-                  const current = individualScores[key];
-                  const final =
-                    teamAvg !== null && typeof current?.delta === "number"
-                      ? Math.round((teamAvg + current.delta) * 100) / 100
-                      : teamAvg;
-                  return (
-                    <li key={key} className="border-t border-black/5 dark:border-white/10 pt-3 first:border-t-0 first:pt-0">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="text-sm flex-1">
-                          <p className="font-medium">{s.name}</p>
-                          <p className="text-xs text-black/50">
-                            Final: <strong>{final ?? "—"}</strong>
+            <Card>
+              <CardHeader className="flex-row items-center justify-between">
+                <CardTitle className="text-sm">Team baseline - {team.name}</CardTitle>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm">
+                    Avg: <strong>{teamAvg ?? "—"}</strong> / 5
+                  </span>
+                  <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:text-destructive" onClick={resetTeam}>
+                    <RotateCcw className="size-3.5" /> Reset team
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-3">
+                  {review.criteria.map((c) => {
+                    const key = `${team.id}:${review.id}:${c.id}`;
+                    const current = teamScores[key];
+                    return (
+                      <li key={key} className="border-t pt-3 first:border-t-0 first:pt-0">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="text-sm flex-1">
+                            <Badge variant={c.category === "Security" ? "secondary" : "outline"} className="mr-2 align-middle">
+                              {c.category}
+                            </Badge>
+                            {c.text}
                           </p>
+                          <div className="flex gap-1 shrink-0">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <Button
+                                key={n}
+                                size="sm"
+                                variant={current?.score === n ? "default" : "outline"}
+                                className="size-7 p-0 text-xs"
+                                onClick={() => setCriterionScore(c.id, n)}
+                              >
+                                {n}
+                              </Button>
+                            ))}
+                          </div>
                         </div>
-                        <div className="flex gap-1 shrink-0">
-                          {[-2, -1, 0, 1, 2].map((n) => (
-                            <button
-                              key={n}
-                              onClick={() => setDelta(s.id, n)}
-                              className={`w-8 h-7 text-xs rounded-md border ${
-                                current?.delta === n
-                                  ? "bg-black text-white dark:bg-white dark:text-black border-transparent"
-                                  : "border-black/15 dark:border-white/20"
-                              }`}
-                            >
-                              {n > 0 ? `+${n}` : n}
-                            </button>
-                          ))}
+                        <input
+                          defaultValue={current?.notes ?? ""}
+                          onBlur={(e) => setCriterionNotes(c.id, e.target.value)}
+                          placeholder="notes (optional)"
+                          className="mt-1.5 w-full text-xs border rounded px-2 py-1 bg-background"
+                        />
+                      </li>
+                    );
+                  })}
+                </ul>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Individual Q&amp;A - {review.label}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-3">
+                  {team.students.map((s) => {
+                    const key = `${s.id}:${review.id}`;
+                    const current = individualScores[key];
+                    const final =
+                      teamAvg !== null && typeof current?.delta === "number"
+                        ? Math.round((teamAvg + current.delta) * 100) / 100
+                        : teamAvg;
+                    return (
+                      <li key={`${key}:${resetNonce}`} className="border-t pt-3 first:border-t-0 first:pt-0">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="text-sm flex-1">
+                            <p className="font-medium">{s.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Final: <strong>{final ?? "—"}</strong>
+                            </p>
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            {[-2, -1, 0, 1, 2].map((n) => (
+                              <Button
+                                key={n}
+                                size="sm"
+                                variant={current?.delta === n ? "default" : "outline"}
+                                className="h-7 px-2 text-xs"
+                                onClick={() => setDelta(s.id, n)}
+                              >
+                                {n > 0 ? `+${n}` : n}
+                              </Button>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                      <textarea
-                        ref={(el) => {
-                          notesRefs.current[s.id] = el;
-                        }}
-                        defaultValue={current?.notes ?? ""}
-                        onBlur={(e) => setIndividualNotes(s.id, e.target.value)}
-                        placeholder="notes (optional)"
-                        rows={2}
-                        className="mt-1.5 w-full text-xs border border-black/10 dark:border-white/15 rounded px-2 py-1 bg-transparent"
-                      />
-                      <QuestionSession
-                        studentName={s.name}
-                        criteria={review.criteria}
-                        teamScoresByCriterion={teamScoresByCriterion}
-                        onAppendNotes={(text) => appendIndividualNotes(s.id, text)}
-                      />
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
+                        <textarea
+                          ref={(el) => {
+                            notesRefs.current[s.id] = el;
+                          }}
+                          defaultValue={current?.notes ?? ""}
+                          onBlur={(e) => setIndividualNotes(s.id, e.target.value)}
+                          placeholder="notes (optional)"
+                          rows={2}
+                          className="mt-1.5 w-full text-xs border rounded px-2 py-1 bg-background"
+                        />
+                        <QuestionSession
+                          studentId={s.id}
+                          teamId={team.id}
+                          reviewId={review.id}
+                          onAppendNotes={(text) => appendIndividualNotes(s.id, text)}
+                          onDeltaChange={(delta) => setDeltaLocal(s.id, delta)}
+                        />
+                      </li>
+                    );
+                  })}
+                </ul>
+              </CardContent>
+            </Card>
           </div>
         )}
       </div>
