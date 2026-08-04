@@ -1,0 +1,58 @@
+<div class="space-y-6">
+  <div>
+    <h1 class="text-2xl font-semibold tracking-tight">Merge reviewer exports</h1>
+    <p class="text-sm text-muted-foreground mt-1">
+      Upload the .xlsx each reviewer exported (one per class, or several from the same class over time) and get one
+      consolidated master workbook. Runs entirely in your browser - nothing is uploaded anywhere.
+    </p>
+  </div>
+
+  <app-card class="border-dashed">
+    <app-card-content class="text-center py-8">
+      <input type="file" accept=".xlsx" multiple (change)="handleFiles(fileInput)" class="text-sm" #fileInput />
+      @if (fileNames().length > 0) {
+        <p class="text-xs text-muted-foreground mt-3">Loaded: {{ fileNames().join(', ') }}</p>
+      }
+      @if (error()) {
+        <p class="text-xs text-destructive mt-2">{{ error() }}</p>
+      }
+    </app-card-content>
+  </app-card>
+
+  @if (overall().length > 0) {
+    <div class="flex items-center justify-between">
+      <p class="text-sm text-muted-foreground">{{ overall().length }} students across {{ classCount() }} class(es)</p>
+      <div class="flex gap-2">
+        <button appButton variant="outline" (click)="reset()">Clear</button>
+        <button appButton (click)="downloadMerged()">Download master .xlsx</button>
+      </div>
+    </div>
+
+    <app-card class="overflow-hidden py-0">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-muted/50">
+            <tr>
+              <th class="text-left px-3 py-2 font-medium">Class</th>
+              <th class="text-left px-3 py-2 font-medium">Team</th>
+              <th class="text-left px-3 py-2 font-medium">Student</th>
+              <th class="text-right px-3 py-2 font-medium">Reviews scored</th>
+              <th class="text-right px-3 py-2 font-medium">Overall final score</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of overall(); track row.Class + row.Team + row.Student) {
+              <tr class="border-t">
+                <td class="px-3 py-2">{{ row.Class }}</td>
+                <td class="px-3 py-2">{{ row.Team }}</td>
+                <td class="px-3 py-2">{{ row.Student }}</td>
+                <td class="px-3 py-2 text-right">{{ row.ReviewsScored }}/4</td>
+                <td class="px-3 py-2 text-right font-medium">{{ row.OverallFinalScore ?? '—' }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </app-card>
+  }
+</div>

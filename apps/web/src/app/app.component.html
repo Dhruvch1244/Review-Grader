@@ -1,0 +1,24 @@
+<div class="min-h-full flex flex-col bg-muted">
+  <header class="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-md">
+    <div class="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between gap-4">
+      <nav class="flex items-center gap-6">
+        <a routerLink="/" class="font-semibold tracking-tight text-[15px]">Review Grader</a>
+        <div class="hidden sm:flex items-center gap-1">
+          @for (l of navLinks; track l.href) {
+            <a
+              [routerLink]="l.href"
+              class="text-sm text-muted-foreground hover:text-foreground px-2.5 py-1.5 rounded-md hover:bg-accent transition-colors"
+              routerLinkActive="text-foreground bg-accent"
+              >{{ l.label }}</a
+            >
+          }
+        </div>
+      </nav>
+      <app-sync-status />
+    </div>
+  </header>
+  <main class="flex-1 max-w-6xl w-full mx-auto px-6 py-8">
+    <router-outlet />
+  </main>
+  <app-toaster />
+</div>

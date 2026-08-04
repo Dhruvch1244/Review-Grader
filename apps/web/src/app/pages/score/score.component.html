@@ -1,0 +1,180 @@
+@if (!classData()) {
+  <p class="text-sm text-muted-foreground">Loading…</p>
+} @else {
+  <div class="space-y-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">{{ classData()!.class.name }}</h1>
+        <p class="text-sm text-muted-foreground">{{ classData()!.class.reviewer_name ?? 'No reviewer set' }}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <a [routerLink]="'/stats/' + classData()!.class.id">
+          <button appButton variant="outline">Stats</button>
+        </a>
+        <a [href]="'/api/export?classId=' + classData()!.class.id">
+          <button appButton>Export .xlsx</button>
+        </a>
+      </div>
+    </div>
+
+    <div class="flex gap-2 flex-wrap">
+      @for (r of reviews(); track r.id) {
+        <button
+          appButton
+          [variant]="r.id === reviewId() ? 'default' : 'outline'"
+          class="h-auto flex-col items-start py-1.5 px-3"
+          (click)="selectReview(r.id)"
+        >
+          <span class="text-sm">R{{ r.number }}: {{ r.label }}</span>
+          <span class="text-[10px] opacity-70 font-normal">{{ r.sprintRange }}</span>
+        </button>
+      }
+    </div>
+
+    <div class="flex gap-4">
+      <aside class="w-48 shrink-0">
+        <p class="text-xs font-medium text-muted-foreground mb-2">Teams</p>
+        <ul class="space-y-1">
+          @for (t of classData()!.teams; track t.id) {
+            <li>
+              <button
+                (click)="selectTeam(t.id)"
+                [class]="
+                  'w-full text-left text-sm px-2.5 py-1.5 rounded-md transition-colors ' +
+                  (t.id === teamId() ? 'bg-accent font-medium' : 'hover:bg-accent/50')
+                "
+              >
+                {{ t.name }}
+              </button>
+            </li>
+          }
+        </ul>
+      </aside>
+
+      @if (team(); as team) {
+        @if (review(); as review) {
+          <div class="flex-1 space-y-6">
+            <app-card class="bg-primary/5 border-primary/20">
+              <app-card-content class="flex items-center justify-between py-4">
+                <div>
+                  <p class="text-sm font-medium">Run this as a guided, timed review</p>
+                  <p class="text-xs text-muted-foreground">
+                    20-minute presentation clock, then walks through each student's Q&amp;A one at a time.
+                  </p>
+                </div>
+                <a [routerLink]="'/review/' + classData()!.class.id + '/' + review.id + '/' + team.id">
+                  <button appButton>
+                    <svg lucidePlayCircle class="size-4"></svg> Start guided review
+                  </button>
+                </a>
+              </app-card-content>
+            </app-card>
+
+            <app-card>
+              <app-card-header class="flex-row items-center justify-between">
+                <app-card-title class="text-sm">Team baseline - {{ team.name }}</app-card-title>
+                <div class="flex items-center gap-3">
+                  <span class="text-sm">Avg: <strong>{{ teamAvg() ?? '—' }}</strong> / 5</span>
+                  <button
+                    appButton
+                    variant="ghost"
+                    size="sm"
+                    class="h-7 text-xs text-muted-foreground hover:text-destructive"
+                    (click)="resetTeam()"
+                  >
+                    <svg lucideRotateCcw class="size-3.5"></svg> Reset team
+                  </button>
+                </div>
+              </app-card-header>
+              <app-card-content>
+                <ul class="space-y-3">
+                  @for (c of review.criteria; track c.id) {
+                    <li class="border-t pt-3 first:border-t-0 first:pt-0">
+                      <div class="flex items-start justify-between gap-3">
+                        <p class="text-sm flex-1">
+                          <app-badge [variant]="c.category === 'Security' ? 'secondary' : 'outline'" class="mr-2 align-middle">
+                            {{ c.category }}
+                          </app-badge>
+                          {{ c.text }}
+                        </p>
+                        <div class="flex gap-1 shrink-0">
+                          @for (n of scoreOptions; track n) {
+                            <button
+                              appButton
+                              size="sm"
+                              [variant]="teamScoreFor(team.id, review.id, c.id)?.score === n ? 'default' : 'outline'"
+                              class="size-7 p-0 text-xs"
+                              (click)="setCriterionScore(c.id, n)"
+                            >
+                              {{ n }}
+                            </button>
+                          }
+                        </div>
+                      </div>
+                      <input
+                        [value]="teamScoreFor(team.id, review.id, c.id)?.notes ?? ''"
+                        (blur)="setCriterionNotes(c.id, $any($event.target).value)"
+                        placeholder="notes (optional)"
+                        class="mt-1.5 w-full text-xs border rounded px-2 py-1 bg-background"
+                      />
+                    </li>
+                  }
+                </ul>
+              </app-card-content>
+            </app-card>
+
+            <app-card>
+              <app-card-header>
+                <app-card-title class="text-sm">Individual Q&amp;A - {{ review.label }}</app-card-title>
+              </app-card-header>
+              <app-card-content>
+                <ul class="space-y-3">
+                  @for (s of team.students; track s.id + ':' + resetNonce()) {
+                    <li class="border-t pt-3 first:border-t-0 first:pt-0">
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="text-sm flex-1">
+                          <p class="font-medium">{{ s.name }}</p>
+                          <p class="text-xs text-muted-foreground">
+                            Final: <strong>{{ finalScoreFor(s.id, review.id) ?? '—' }}</strong>
+                          </p>
+                        </div>
+                        <div class="flex gap-1 shrink-0">
+                          @for (n of deltaOptions; track n) {
+                            <button
+                              appButton
+                              size="sm"
+                              [variant]="individualScoreFor(s.id, review.id)?.delta === n ? 'default' : 'outline'"
+                              class="h-7 px-2 text-xs"
+                              (click)="setDelta(s.id, n)"
+                            >
+                              {{ n > 0 ? '+' + n : n }}
+                            </button>
+                          }
+                        </div>
+                      </div>
+                      <textarea
+                        #notesTa
+                        [value]="individualScoreFor(s.id, review.id)?.notes ?? ''"
+                        (blur)="setIndividualNotes(s.id, $any($event.target).value)"
+                        placeholder="notes (optional)"
+                        rows="2"
+                        class="mt-1.5 w-full text-xs border rounded px-2 py-1 bg-background"
+                      ></textarea>
+                      <app-question-session
+                        [studentId]="s.id"
+                        [teamId]="team.id"
+                        [reviewId]="review.id"
+                        (appendNotes)="appendIndividualNotes(s.id, notesTa, $event)"
+                        (deltaChange)="setDeltaLocal(s.id, $event)"
+                      />
+                    </li>
+                  }
+                </ul>
+              </app-card-content>
+            </app-card>
+          </div>
+        }
+      }
+    </div>
+  </div>
+}

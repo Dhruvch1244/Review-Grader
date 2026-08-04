@@ -1,0 +1,47 @@
+<app-card class="gap-2">
+  <app-card-header class="flex-row items-center justify-between pb-1">
+    <app-card-title class="text-sm">{{ team().name }}</app-card-title>
+    <button
+      appButton
+      variant="ghost"
+      size="icon"
+      class="size-6 text-muted-foreground hover:text-destructive"
+      (click)="removeTeam()"
+    >
+      <svg lucideTrash2 class="size-3.5"></svg>
+    </button>
+  </app-card-header>
+  <app-card-content class="space-y-1.5">
+    @for (s of team().students; track s.id) {
+      <div class="flex items-center gap-1.5">
+        <input
+          appInput
+          [value]="s.name"
+          (input)="renameLocally(s.id, $any($event.target).value)"
+          (blur)="commitRename(s.id, $any($event.target).value)"
+          class="h-8 text-sm"
+        />
+        <select appSelect size="sm" class="w-[92px] text-xs" [value]="team().id" (change)="moveStudent(s.id, $any($event.target).value)">
+          @for (t of classData().teams; track t.id) {
+            <option [value]="t.id">{{ t.name }}</option>
+          }
+        </select>
+        <button
+          appButton
+          variant="ghost"
+          size="icon"
+          class="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+          (click)="removeMember(s.id)"
+        >
+          <svg lucideTrash2 class="size-3.5"></svg>
+        </button>
+      </div>
+    }
+    @if (team().students.length === 0) {
+      <p class="text-xs text-muted-foreground italic">No one on this team yet.</p>
+    }
+    <button appButton variant="ghost" size="sm" class="text-xs text-muted-foreground w-full justify-start" (click)="addMember()">
+      <svg lucidePlus class="size-3.5"></svg> Add member
+    </button>
+  </app-card-content>
+</app-card>

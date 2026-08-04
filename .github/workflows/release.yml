@@ -35,11 +35,19 @@ jobs:
           $version = (Get-Content package.json | ConvertFrom-Json).version
           echo "version=$version" >> $env:GITHUB_OUTPUT
 
-      - name: Install dependencies
+      - name: Install dependencies (whole workspace)
         run: npm ci
 
-      - name: Build the app (standalone output)
+      - name: Build the API server and the Angular static bundle
         run: npm run build
+
+      - name: Install the API's production dependencies only
+        # npm workspaces hoist shared deps to the root node_modules (that's
+        # where better-sqlite3's compiled Windows binary actually lands,
+        # not apps/api/node_modules) - `npm ci --omit=dev` at the root,
+        # scoped to just the api workspace, reinstalls only what
+        # apps/api/dist needs to run, still respecting that hoisting.
+        run: npm ci --omit=dev --workspace=@review-grader/api
 
       - name: Assemble the standalone release folder
         shell: pwsh
@@ -47,16 +55,27 @@ jobs:
           $release = "release"
           New-Item -ItemType Directory -Force -Path $release | Out-Null
 
-          # .next/standalone already contains server.js, package.json and a
-          # pruned production node_modules (including better-sqlite3's
-          # Windows-built native binary, since this whole job runs on
-          # windows-latest) - static assets and /public aren't included by
-          # Next.js in standalone mode, so those get copied in by hand.
-          Copy-Item -Recurse -Force ".next/standalone/*" "$release/"
-          New-Item -ItemType Directory -Force -Path "$release/public" | Out-Null
-          Copy-Item -Recurse -Force "public/*" "$release/public/"
-          New-Item -ItemType Directory -Force -Path "$release/.next/static" | Out-Null
-          Copy-Item -Recurse -Force ".next/static/*" "$release/.next/static/"
+          # Compiled server + its own production deps.
+          Copy-Item -Recurse -Force "apps/api/dist" "$release/dist"
+          Copy-Item -Force "apps/api/package.json" "$release/package.json"
+          New-Item -ItemType Directory -Force -Path "$release/node_modules" | Out-Null
+          Copy-Item -Recurse -Force "node_modules/*" "$release/node_modules/"
+          if (Test-Path "apps/api/node_modules") {
+            Copy-Item -Recurse -Force "apps/api/node_modules/*" "$release/node_modules/"
+          }
+
+          # Built Angular static assets, served by Express from ./public
+          # next to dist/server.js (see apps/api/src/app.ts).
+          Copy-Item -Recurse -Force "apps/api/public" "$release/public"
+
+      - name: Verify better-sqlite3's native binary made it into the zip
+        shell: pwsh
+        run: |
+          $binary = "release/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+          if (-not (Test-Path $binary)) {
+            throw "better-sqlite3 native binary missing from release/node_modules - Windows build did not compile or was not copied in."
+          }
+          Write-Host "Found $binary"
 
       - name: Download a portable Node.js runtime (latest v22.x)
         shell: pwsh
