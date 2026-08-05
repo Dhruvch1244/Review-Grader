@@ -1,7 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -13,12 +13,17 @@
 # testing
 /coverage
 
-# next.js
-/.next/
-/out/
+# build output
+apps/web/dist/
+apps/web/.angular/
+apps/api/dist/
+# built Angular static assets, copied into apps/api/public at build time
+apps/api/public/*
+!apps/api/public/.gitkeep
 
-# production
-/build
+# release assembly (release.yml)
+/release/
+review-grader-windows.zip
 
 # misc
 .DS_Store
@@ -33,12 +38,8 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
-# vercel
-.vercel
-
 # local database (each host machine keeps its own scoring data)
 /data/
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts

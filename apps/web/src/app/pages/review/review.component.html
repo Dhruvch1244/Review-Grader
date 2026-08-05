@@ -1,0 +1,152 @@
+@if (!classData() || !review() || !team() || !session()) {
+  <p class="text-sm text-muted-foreground">Loading…</p>
+} @else {
+  <div [class]="'space-y-6 mx-auto ' + (session()!.phase === 'individual' ? 'max-w-6xl' : 'max-w-3xl')">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">{{ team()!.name }} - {{ review()!.label }}</h1>
+        <p class="text-sm text-muted-foreground">{{ classData()!.class.name }}</p>
+      </div>
+      <app-badge variant="secondary" class="capitalize">{{ session()!.phase }}</app-badge>
+    </div>
+
+    @switch (session()!.phase) {
+      @case ('idle') {
+        <app-card>
+          <app-card-content class="py-10 text-center space-y-4">
+            <p class="text-sm text-muted-foreground max-w-md mx-auto">
+              Ready to review {{ team()!.name }}. The presentation gets a 20-minute clock - score the rubric live as
+              they present, then work through each person's individual Q&amp;A.
+            </p>
+            <button appButton size="lg" (click)="startPresentation()">Start presentation</button>
+          </app-card-content>
+        </app-card>
+      }
+
+      @case ('presentation') {
+        <app-card>
+          <app-card-content class="py-6 flex flex-col items-center gap-3">
+            <p [class]="'text-5xl font-semibold tabular-nums ' + timerColor()">{{ mmss() }}</p>
+            <app-progress [value]="timerPct()" class="w-full max-w-sm" />
+            <button appButton variant="outline" size="sm" (click)="endPresentationNow()">End presentation now</button>
+          </app-card-content>
+        </app-card>
+        <app-card>
+          <app-card-header>
+            <app-card-title class="text-sm">Score live - Avg: {{ teamAvg() ?? '—' }} / 5</app-card-title>
+          </app-card-header>
+          <app-card-content>
+            <ul class="space-y-3">
+              @for (c of review()!.criteria; track c.id) {
+                <li class="border-t pt-3 first:border-t-0 first:pt-0">
+                  <div class="flex items-start justify-between gap-3">
+                    <p class="text-sm flex-1">
+                      <app-badge [variant]="c.category === 'Security' ? 'secondary' : 'outline'" class="mr-2 align-middle">
+                        {{ c.category }}
+                      </app-badge>
+                      {{ c.text }}
+                    </p>
+                    <div class="flex gap-1 shrink-0">
+                      @for (n of scoreOptions; track n) {
+                        <button
+                          appButton
+                          size="sm"
+                          [variant]="teamScores()[teamId() + ':' + reviewId() + ':' + c.id]?.score === n ? 'default' : 'outline'"
+                          class="size-7 p-0 text-xs"
+                          (click)="setCriterionScore(c.id, n)"
+                        >
+                          {{ n }}
+                        </button>
+                      }
+                    </div>
+                  </div>
+                </li>
+              }
+            </ul>
+          </app-card-content>
+        </app-card>
+      }
+
+      @case ('individual') {
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-semibold">Individual Q&amp;A - everyone at once</h2>
+            <p class="text-xs text-muted-foreground">
+              Each person got a different 5-question set weighted toward the team's weak spots. Rate as you go
+              through each person, then finish whenever you're ready.
+            </p>
+          </div>
+          <button appButton (click)="finishQA()">Finish Q&amp;A</button>
+        </div>
+        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          @for (s of team()!.students; track s.id) {
+            <app-card>
+              <app-card-header class="pb-1">
+                <app-card-title class="text-sm">{{ s.name }}</app-card-title>
+                <p class="text-xs text-muted-foreground">Final so far: <strong>{{ finalScoreFor(s.id) ?? '—' }}</strong></p>
+              </app-card-header>
+              <app-card-content>
+                <app-question-session
+                  [studentId]="s.id"
+                  [teamId]="teamId()"
+                  [reviewId]="reviewId()"
+                  (appendNotes)="$event"
+                  (deltaChange)="setDeltaLocal(s.id, $event)"
+                />
+              </app-card-content>
+            </app-card>
+          }
+        </div>
+      }
+
+      @case ('final') {
+        <app-card>
+          <app-card-header>
+            <app-card-title class="text-sm">Final review - add grace marks if needed</app-card-title>
+          </app-card-header>
+          <app-card-content class="space-y-3">
+            @for (s of team()!.students; track s.id) {
+              <div class="flex items-center justify-between border-t pt-3 first:border-t-0 first:pt-0">
+                <div>
+                  <p class="text-sm font-medium">{{ s.name }}</p>
+                  <p class="text-xs text-muted-foreground">
+                    team {{ teamAvg() ?? '—' }} + delta {{ finalWithGraceFor(s.id).delta }} + grace
+                    {{ finalWithGraceFor(s.id).grace }} = <strong>{{ finalWithGraceFor(s.id).final ?? '—' }}</strong>
+                  </p>
+                </div>
+                <div class="flex gap-1">
+                  @for (g of GRACE_OPTIONS; track g) {
+                    <button
+                      appButton
+                      size="sm"
+                      [variant]="finalWithGraceFor(s.id).grace === g ? 'default' : 'outline'"
+                      class="h-7 px-2 text-xs"
+                      (click)="setGrace(s.id, g)"
+                    >
+                      {{ g > 0 ? '+' + g : g }}
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+            <button appButton class="mt-2" (click)="markComplete()">Mark review complete</button>
+          </app-card-content>
+        </app-card>
+      }
+
+      @case ('done') {
+        <app-card>
+          <app-card-content class="py-10 text-center space-y-4">
+            <p class="text-sm text-muted-foreground">{{ team()!.name }}'s {{ review()!.label }} review is complete.</p>
+            <div class="flex gap-2 justify-center">
+              <a [routerLink]="'/stats/' + classId()">
+                <button appButton variant="outline">View stats</button>
+              </a>
+              <button appButton variant="ghost" (click)="restartSession()">Restart this session</button>
+            </div>
+          </app-card-content>
+        </app-card>
+      }
+    }
+  </div>
+}

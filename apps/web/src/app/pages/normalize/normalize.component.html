@@ -1,0 +1,85 @@
+@if (!data()) {
+  <p class="text-sm text-muted-foreground">Loading…</p>
+} @else {
+  <div class="space-y-6">
+    <div>
+      <h1 class="text-2xl font-semibold tracking-tight">Cross-class normalization</h1>
+      <p class="text-sm text-muted-foreground mt-1">
+        Different classes score differently even for equal work - normalize before comparing students across
+        classes.
+      </p>
+    </div>
+
+    <app-alert>
+      <svg lucideInfo class="size-4"></svg>
+      <app-alert-title>How this works</app-alert-title>
+      <app-alert-description>
+        Each student's overall score is converted to a z-score against their own class's mean and spread, then
+        rescaled to a 0-100 band centered on 50 (a T-score) - so a 3.8 in a strict class and a 4.3 in a lenient one
+        can land at the same normalized value if they were equally strong relative to their own classmates.
+      </app-alert-description>
+    </app-alert>
+
+    <div class="grid md:grid-cols-2 gap-6">
+      <app-card>
+        <app-card-header>
+          <app-card-title class="text-sm">Before: raw average by class</app-card-title>
+        </app-card-header>
+        <app-card-content>
+          <div style="height: 240px">
+            <canvas baseChart [data]="rawChartData()" [options]="rawChartOptions()" type="bar"></canvas>
+          </div>
+        </app-card-content>
+      </app-card>
+
+      <app-card>
+        <app-card-header>
+          <app-card-title class="text-sm">After: normalized average by class</app-card-title>
+        </app-card-header>
+        <app-card-content>
+          <div style="height: 240px">
+            <canvas baseChart [data]="normalizedChartData()" [options]="normalizedChartOptions()" type="bar"></canvas>
+          </div>
+          <p class="text-xs text-muted-foreground mt-1">
+            Every class centers on 50 by construction - it's each <em>student's</em> distance from their class's
+            center (below) that becomes comparable.
+          </p>
+        </app-card-content>
+      </app-card>
+    </div>
+
+    <app-card>
+      <app-card-header>
+        <app-card-title class="text-sm">Every student, normalized</app-card-title>
+      </app-card-header>
+      <app-card-content>
+        <div class="overflow-x-auto">
+          <table class="text-sm w-full">
+            <thead class="bg-muted/50">
+              <tr>
+                <th class="text-left px-3 py-2 font-medium">Class</th>
+                <th class="text-left px-3 py-2 font-medium">Team</th>
+                <th class="text-left px-3 py-2 font-medium">Student</th>
+                <th class="text-right px-3 py-2 font-medium">Raw</th>
+                <th class="text-right px-3 py-2 font-medium">Z-score</th>
+                <th class="text-right px-3 py-2 font-medium">Normalized</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (s of data()!.students; track s.classId + s.team + s.student) {
+                <tr class="border-t">
+                  <td class="px-3 py-2">{{ s.className }}</td>
+                  <td class="px-3 py-2">{{ s.team }}</td>
+                  <td class="px-3 py-2">{{ s.student }}</td>
+                  <td class="px-3 py-2 text-right tabular-nums">{{ s.raw }}</td>
+                  <td class="px-3 py-2 text-right tabular-nums">{{ zLabel(s.z) }}</td>
+                  <td class="px-3 py-2 text-right font-medium tabular-nums">{{ s.normalized }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </app-card-content>
+    </app-card>
+  </div>
+}

@@ -1,0 +1,21 @@
+<app-card class="bg-accent/30 border-dashed">
+  <app-card-header class="pb-2">
+    <app-card-title class="text-sm">Bulk-import this class's roster</app-card-title>
+    <p class="text-xs text-muted-foreground">
+      Paste all {{ totalSlots() }} names in one go, one per line, in the order you want them filled - Team 1's slots
+      first, then Team 2's, and so on.
+    </p>
+  </app-card-header>
+  <app-card-content class="space-y-2">
+    <textarea
+      [value]="paste()"
+      (input)="paste.set($any($event.target).value)"
+      [placeholder]="'One name per line (up to ' + totalSlots() + ')'"
+      rows="4"
+      class="w-full text-sm border rounded-md px-3 py-2 bg-background"
+    ></textarea>
+    <button appButton size="sm" (click)="apply()" [disabled]="saving()">
+      {{ saving() ? 'Applying…' : 'Apply to all teams' }}
+    </button>
+  </app-card-content>
+</app-card>

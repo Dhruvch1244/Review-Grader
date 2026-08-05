@@ -4,7 +4,20 @@ Scores teams and individuals across the 4 capstone review checkpoints for the
 Enterprise Trading Platform program - 6 fixed classes, 4 teams of 6 per class
 (144 people), 11 sprints. Runs as one shared instance on a host machine's
 local network - reviewers connect from their own devices over WiFi, and it
-keeps working if the WiFi drops mid-review. UI is built on shadcn/ui.
+keeps working if the WiFi drops mid-review.
+
+## How it's built
+
+An npm workspace with two apps:
+
+- **`apps/api`** - Express + TypeScript + `better-sqlite3`. Owns the SQLite
+  database, the rubric/question-bank logic, and every `/api/*` endpoint. In
+  production it also serves the built Angular app as static files, so the
+  whole thing runs as one process on one port.
+- **`apps/web`** - Angular 17 (standalone components + signals). Talks to
+  `apps/api` over `fetch()`, with an IndexedDB-backed offline queue so
+  scoring keeps working if the WiFi drops mid-review (writes apply
+  optimistically and sync once the connection's back).
 
 ## How it's organized
 
@@ -16,7 +29,7 @@ keeps working if the WiFi drops mid-review. UI is built on shadcn/ui.
   Sprints 5-7 (Core Services & Integration), R3 = Sprints 8-9 (Security &
   Full-Stack UI), R4 = Sprints 10-11 (Capstone Extension & Deployment). Each
   review's rubric criteria (1-5 scale, Build vs. Security/OWASP) are drafted
-  from that sprint range - see `src/lib/rubric-seed.ts`.
+  from that sprint range - see `apps/api/src/rubric-seed.ts`.
 - **Scoring model**: each team gets a baseline score from the rubric criteria
   during their presentation. Each student's delta is computed from their
   individual Q&A: every rated question (Answered/Middle/Unanswered) counts
@@ -26,12 +39,11 @@ keeps working if the WiFi drops mid-review. UI is built on shadcn/ui.
   Final score = team average + delta + grace.
 - **Data**: stored locally in SQLite at `~/.review-grader/review-grader.db`
   (each host machine keeps its own) - deliberately outside the project
-  folder, so `next dev`'s file watcher doesn't treat every score save as a
-  source change and reload the page. Override the location with
-  `REVIEW_GRADER_DATA_DIR=/some/path`. Client writes also go through an
-  IndexedDB queue first, so scoring keeps working offline and syncs
-  automatically once the connection comes back (offline edits always win on
-  sync - see `src/lib/api-client.ts`).
+  folder. Override the location with `REVIEW_GRADER_DATA_DIR=/some/path`.
+  Client writes also go through an IndexedDB queue first, so scoring keeps
+  working offline and syncs automatically once the connection comes back
+  (offline edits always win on sync - see
+  `apps/web/src/app/core/services/api-client.service.ts`).
 - **Resetting data**: no need to touch the filesystem for this. A **"Reset
   team"** button on the Score page clears one team's scores, ratings, and
   question sessions (rosters and rubric stay put). A **"Reset all data"**
@@ -45,23 +57,33 @@ keeps working if the WiFi drops mid-review. UI is built on shadcn/ui.
 ```bash
 npm install
 npm run build
-npm run start -- -H 0.0.0.0 -p 3000
+npm start
 ```
 
-`-H 0.0.0.0` makes it reachable from other devices on the same WiFi/LAN at
-`http://<host-machine-IP>:3000`. Use `npm run dev -- -H 0.0.0.0` instead
-while iterating locally. The app opens straight to `/setup` - that's the
-landing page.
+`npm run build` compiles the Express API and the Angular app, and copies the
+Angular static build into `apps/api/public` so the API server can serve it.
+`npm start` then runs one process (`apps/api`) on `PORT` (default 3001) and
+`HOSTNAME` (default `localhost` - set `HOSTNAME=0.0.0.0` to make it reachable
+from other devices on the same WiFi/LAN). The app opens straight to `/setup`
+- that's the landing page.
+
+While iterating locally, run the two apps separately instead:
+
+```bash
+npm run dev:api   # Express on :3001, via tsx watch
+npm run dev:web   # Angular dev server on :4200, proxying /api to :3001
+```
 
 ### Windows release (no Node/npm install needed)
 
 `.github/workflows/release.yml` builds a `review-grader-windows.zip`: it
-compiles the Next.js standalone bundle on `windows-latest` (so
-`better-sqlite3`'s native binary is built for Windows), bundles a portable
-Node.js runtime and `scripts/windows/start.bat` alongside it, and zips the
-lot. It runs whenever `main` is pushed/merged into the `release` branch
-(tags the zip `v<package.json version>` and attaches it to a GitHub
-Release), and also on publishing a Release manually or via
+installs the workspace on `windows-2022` (so `better-sqlite3`'s native
+binary is built for Windows), builds the Express server and the Angular
+static bundle, prunes `node_modules` down to `apps/api`'s production
+dependencies, and bundles it all with a portable Node.js runtime and
+`scripts/windows/start.bat`. It runs whenever `main` is pushed/merged into
+the `release` branch (tags the zip `v<package.json version>` and attaches it
+to a GitHub Release), and also on publishing a Release manually or via
 `workflow_dispatch`. To cut a new build: merge `main` into `release` and
 push - no manual release-drafting needed. For someone who just wants to
 run it:
@@ -82,7 +104,7 @@ No Node.js, npm, or build step required on the end user's machine.
    and hit "Apply to all teams" to fill every team's slots in order.
    Add/remove teams and members, or shuffle in a fresh random roster, at any
    time. "Reset all data" lives here too.
-2. **Score** (`/score/[classId]`) - pick a review, pick a team, score the
+2. **Score** (`/score/:classId`) - pick a review, pick a team, score the
    rubric criteria live, then work through each student's individual Q&A.
    Each student's question session **generates and shows its questions
    automatically** - 5 *distinct* questions per student (no repeats across
@@ -96,7 +118,7 @@ No Node.js, npm, or build step required on the end user's machine.
    delta. The question bank is editable at `/questions`. A "Reset team"
    button clears one team's scores/ratings/sessions without touching the
    roster.
-3. **Guided review** (`/review/[classId]/[reviewId]/[teamId]`, linked from
+3. **Guided review** (`/review/:classId/:reviewId/:teamId`, linked from
    the Score page) - runs an actual review end to end: a 20-minute
    presentation timer (score the rubric live while it runs), automatic
    hand-off to individual Q&A once time's up, **all 6 teammates' question
@@ -104,14 +126,14 @@ No Node.js, npm, or build step required on the end user's machine.
    parallel instead of one student at a time, and a final screen to add
    grace marks before marking the review complete. State persists
    server-side, so a refresh mid-session resumes where it left off.
-4. **Stats** (`/stats/[classId]`) - a dashboard of team and student
+4. **Stats** (`/stats/:classId`) - a dashboard of team and student
    comparisons: team averages, trend across R1-R4, a class-wide Build vs.
    Security breakdown, a student leaderboard, score distribution, a
    criteria x team heatmap, a per-team radar of criteria strengths/gaps, a
    team-baseline-vs-individual-delta scatter, a **Score Health** stacked bar
-   chart (Low/Mid/High criteria scores per review, replacing the old pie
-   chart), and a raw data table. Colors follow the dataviz skill's validated
-   palette (`src/lib/chart-colors.ts`).
+   chart (Low/Mid/High criteria scores per review), and a raw data table.
+   Colors follow the dataviz skill's validated palette
+   (`apps/web/src/app/core/chart-colors.ts`).
 5. **Normalize** (`/normalize`) - converts every student's overall score to a
    z-score against their own class's mean/spread, then to a 0-100 T-score, so
    classes graded at different levels of strictness become comparable.

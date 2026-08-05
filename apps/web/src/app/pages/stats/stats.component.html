@@ -1,0 +1,236 @@
+@if (!ready()) {
+  <p class="text-sm text-muted-foreground">Loading…</p>
+} @else {
+  <div class="space-y-8">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">{{ classData()!.class.name }} - Stats</h1>
+        <p class="text-sm text-muted-foreground">{{ classData()!.class.reviewer_name ?? 'No reviewer set' }}</p>
+      </div>
+      <a [routerLink]="'/score/' + classData()!.class.id">
+        <button appButton variant="outline">Back to scoring</button>
+      </a>
+    </div>
+
+    <!-- KPI row -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <app-card class="py-3">
+        <app-card-content class="px-4">
+          <p class="text-2xl font-semibold tabular-nums">{{ leaderboard().length }}</p>
+          <p class="text-xs text-muted-foreground mt-0.5">Students</p>
+        </app-card-content>
+      </app-card>
+      <app-card class="py-3">
+        <app-card-content class="px-4">
+          <p class="text-2xl font-semibold tabular-nums">{{ classData()!.teams.length }}</p>
+          <p class="text-xs text-muted-foreground mt-0.5">Teams</p>
+        </app-card-content>
+      </app-card>
+      <app-card class="py-3">
+        <app-card-content class="px-4">
+          <p class="text-2xl font-semibold tabular-nums">{{ classOverallAvg() ?? '—' }}</p>
+          <p class="text-xs text-muted-foreground mt-0.5">Class avg (overall)</p>
+        </app-card-content>
+      </app-card>
+      <app-card class="py-3">
+        <app-card-content class="px-4">
+          <p class="text-2xl font-semibold tabular-nums">{{ scoredStudents() }}/{{ leaderboard().length }}</p>
+          <p class="text-xs text-muted-foreground mt-0.5">Students with a score</p>
+        </app-card-content>
+      </app-card>
+    </div>
+
+    <!-- 1. Team comparison -->
+    <app-chart-card title="Team comparison" subtitle="Overall average score across everything scored so far">
+      <div style="height: 260px">
+        <canvas baseChart [data]="teamComparisonData()" [options]="teamComparisonOptions()" type="bar"></canvas>
+      </div>
+    </app-chart-card>
+
+    <!-- 2. Team trend across reviews -->
+    <app-chart-card title="Team trend across reviews" subtitle="Team baseline average, R1 → R4">
+      <div style="height: 280px">
+        <canvas baseChart [data]="teamTrendData()" [options]="teamTrendOptions()" type="line"></canvas>
+      </div>
+    </app-chart-card>
+
+    <div class="grid md:grid-cols-2 gap-6">
+      <!-- 3. Class average trend -->
+      <app-chart-card title="Class average trend" subtitle="Whole class, R1 → R4">
+        <div style="height: 220px">
+          <canvas baseChart [data]="classTrendData()" [options]="classTrendOptions()" type="line"></canvas>
+        </div>
+      </app-chart-card>
+
+      <!-- 4. Category breakdown by review -->
+      <app-chart-card title="Build vs Security" subtitle="Class-wide average by category, per review">
+        <div style="height: 220px">
+          <canvas baseChart [data]="categoryTrendData()" [options]="categoryTrendOptions()" type="bar"></canvas>
+        </div>
+      </app-chart-card>
+    </div>
+
+    <!-- 5. Student leaderboard -->
+    <app-chart-card title="Student leaderboard" subtitle="Overall final score (team avg + individual delta), all reviews">
+      <div [style.height.px]="leaderboardHeight()">
+        <canvas baseChart [data]="leaderboardData()" [options]="leaderboardOptions()" type="bar"></canvas>
+      </div>
+    </app-chart-card>
+
+    <div class="grid md:grid-cols-2 gap-6">
+      <!-- 6. Score distribution histogram -->
+      <app-chart-card title="Score distribution" subtitle="How many students land in each final-score band">
+        <div style="height: 220px">
+          <canvas baseChart [data]="histogramData()" [options]="histogramOptions()" type="bar"></canvas>
+        </div>
+      </app-chart-card>
+
+      <!-- 7. Score health across reviews -->
+      <app-chart-card title="Score health" subtitle="Low (1-2) / Mid (3) / High (4-5) criteria scores, R1 → R4">
+        @if (healthAllZero()) {
+          <app-empty-state message="No criteria scored yet." />
+        } @else {
+          <div style="height: 220px">
+            <canvas baseChart [data]="healthData()" [options]="healthOptions()" type="bar"></canvas>
+          </div>
+        }
+      </app-chart-card>
+    </div>
+
+    <!-- 8. Team scatter -->
+    <app-chart-card
+      title="Team baseline vs. individual delta"
+      subtitle="Do individual Q&As compensate for a weaker team score, or reinforce a strong one?"
+    >
+      @if (!scatterHasData()) {
+        <app-empty-state message="No team has a baseline score yet." />
+      } @else {
+        <div style="height: 260px">
+          <canvas baseChart [data]="scatterData()" [options]="scatterOptions()" type="scatter"></canvas>
+        </div>
+      }
+      <p class="text-xs text-muted-foreground mt-1">A team with no individual scores yet plots at delta = 0.</p>
+    </app-chart-card>
+
+    <!-- Review-scoped section: heatmap + radar -->
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs text-muted-foreground">Focus review for the charts below:</span>
+      <button
+        appButton
+        size="sm"
+        [variant]="reviewFocus() === 'all' ? 'default' : 'outline'"
+        class="h-7 text-xs"
+        (click)="setReviewFocus('all')"
+      >
+        Latest
+      </button>
+      @for (r of reviews(); track r.id) {
+        <button
+          appButton
+          size="sm"
+          [variant]="reviewFocus() === r.number ? 'default' : 'outline'"
+          class="h-7 text-xs"
+          (click)="setReviewFocus(r.number)"
+        >
+          R{{ r.number }}
+        </button>
+      }
+    </div>
+
+    <!-- 9. Heatmap -->
+    @if (heatmap(); as heatmap) {
+      <app-chart-card title="Criteria heatmap" [subtitle]="'Every criterion vs. every team - ' + heatmapReview()?.label">
+        <div class="overflow-x-auto">
+          <table class="text-xs border-collapse w-full">
+            <thead>
+              <tr>
+                <th class="text-left font-medium p-1.5 sticky left-0 bg-inherit">Criterion</th>
+                @for (t of heatmap.teams; track t) {
+                  <th class="p-1.5 font-medium text-center whitespace-nowrap">{{ t }}</th>
+                }
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of heatmap.rows; track row.criterion) {
+                <tr>
+                  <td class="p-1.5 max-w-xs align-top">
+                    <app-badge
+                      [variant]="row.category === 'Security' ? 'secondary' : 'outline'"
+                      class="mr-1 h-4 px-1 text-[9px] uppercase tracking-wide align-middle"
+                    >
+                      {{ row.category }}
+                    </app-badge>
+                    {{ row.criterion }}
+                  </td>
+                  @for (v of row.values; track $index) {
+                    <td class="p-1.5 text-center">
+                      <div
+                        class="w-9 h-9 mx-auto rounded flex items-center justify-center font-medium"
+                        [style.background]="heatCellColor(v)"
+                        [style.border]="v === null ? dashedBorder() : 'none'"
+                        [style.color]="cellTextColor(v)"
+                        [title]="v === null ? 'Not scored' : v + '/5'"
+                      >
+                        {{ v ?? '–' }}
+                      </div>
+                    </td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </app-chart-card>
+    }
+
+    <!-- 10. Radar -->
+    @if (radar(); as radar) {
+      <app-chart-card title="Criteria shape by team" [subtitle]="'Pick up to 3 teams to overlay - ' + heatmapReview()?.label">
+        <div class="flex gap-2 flex-wrap mb-2">
+          @for (t of classData()!.teams; track t.id) {
+            <button
+              (click)="toggleRadarTeam(t.name)"
+              [class]="
+                'text-xs px-2 py-1 rounded-md border ' +
+                (radarTeams().includes(t.name) ? 'border-transparent text-white dark:text-black' : 'border-black/15 dark:border-white/20')
+              "
+              [style.background]="radarTeamColor(t.name)"
+            >
+              {{ t.name }}
+            </button>
+          }
+        </div>
+        <div style="height: 340px">
+          <canvas baseChart [data]="radarData()" [options]="radarOptions()" type="radar"></canvas>
+        </div>
+        <p class="text-xs text-muted-foreground mt-1">Unscored criteria show as 0.</p>
+      </app-chart-card>
+    }
+
+    <!-- Table view (accessible fallback + raw numbers) -->
+    <app-chart-card title="All students" subtitle="Raw numbers behind every chart above">
+      <div class="overflow-x-auto">
+        <table class="text-sm w-full">
+          <thead class="bg-muted/50">
+            <tr>
+              <th class="text-left px-3 py-2 font-medium">Team</th>
+              <th class="text-left px-3 py-2 font-medium">Student</th>
+              <th class="text-right px-3 py-2 font-medium">Reviews scored</th>
+              <th class="text-right px-3 py-2 font-medium">Overall final score</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (s of leaderboard(); track s.team + '-' + s.student) {
+              <tr class="border-t">
+                <td class="px-3 py-2">{{ s.team }}</td>
+                <td class="px-3 py-2">{{ s.student }}</td>
+                <td class="px-3 py-2 text-right">{{ s.reviewsScored }}/4</td>
+                <td class="px-3 py-2 text-right font-medium">{{ s.overall ?? '—' }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </app-chart-card>
+  </div>
+}

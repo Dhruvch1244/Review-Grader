@@ -11,7 +11,7 @@ echo   Review Grader
 echo   Starting server on port %PORT% ...
 echo.
 
-start "Review Grader Server" /min "%~dp0node\node.exe" "%~dp0server.js"
+start "Review Grader Server" /min "%~dp0node\node.exe" "%~dp0dist\server.js"
 
 timeout /t 3 /nobreak >nul
 start "" "http://localhost:%PORT%"
