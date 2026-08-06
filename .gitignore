@@ -23,6 +23,13 @@ apps/api/public/*
 
 # release assembly (release.yml)
 /release/
+/stage/
+/classes/
+/node-extracted/
+/jre-extracted/
+node-portable.zip
+jre-portable.zip
+review-grader.jar
 review-grader-windows.zip
 
 # misc

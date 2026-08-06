@@ -74,28 +74,36 @@ npm run dev:api   # Express on :3001, via tsx watch
 npm run dev:web   # Angular dev server on :4200, proxying /api to :3001
 ```
 
-### Windows release (no Node/npm install needed)
+### Windows release (no install needed)
 
-`.github/workflows/release.yml` builds a `review-grader-windows.zip`: it
-installs the workspace on `windows-2022` (so `better-sqlite3`'s native
-binary is built for Windows), builds the Express server and the Angular
-static bundle, prunes `node_modules` down to `apps/api`'s production
-dependencies, and bundles it all with a portable Node.js runtime and
-`scripts/windows/start.bat`. It runs whenever `main` is pushed/merged into
-the `release` branch (tags the zip `v<package.json version>` and attaches it
-to a GitHub Release), and also on publishing a Release manually or via
+`.github/workflows/release.yml` builds a `review-grader-windows.zip`
+containing one `review-grader.jar` and `scripts/windows/start.bat`. The jar
+is entirely self-contained: `launcher/Main.java` (a small Java 17 program,
+built on `windows-2022` so `better-sqlite3`'s native binary compiles for
+Windows) is packaged together with a portable Node.js runtime and the built
+Express server + Angular static assets as plain entries inside the same
+jar. Running the jar extracts those next to itself once (skipped on later
+runs) and spawns the bundled Node server - so there's nothing to install,
+just one file to run. `start.bat` runs the jar with a portable Java 17
+runtime bundled alongside it in the zip, so the end user doesn't need
+Node, Java, or npm either.
+
+The workflow runs whenever `main` is pushed/merged into the `release`
+branch (tags the zip `v<package.json version>` and attaches it to a GitHub
+Release), and also on publishing a Release manually or via
 `workflow_dispatch`. To cut a new build: merge `main` into `release` and
 push - no manual release-drafting needed. For someone who just wants to
 run it:
 
 1. Download and unzip `review-grader-windows.zip` from the
    [Releases](../../releases) page.
-2. Double-click `start.bat`. It picks a random free-ish port, starts the
-   server minimized, and opens the app in the default browser a couple
-   seconds later. See `scripts/windows/README-WINDOWS.txt` (included in the
-   zip) for how to stop it and where data is stored.
+2. Double-click `start.bat`. It picks a random free-ish port and opens the
+   app in the default browser once the server's ready. See
+   `scripts/windows/README-WINDOWS.txt` (included in the zip) for how to
+   stop it and where data is stored.
 
-No Node.js, npm, or build step required on the end user's machine.
+No Node.js, Java, npm, or any build step required on the end user's
+machine.
 
 ## Workflow
 

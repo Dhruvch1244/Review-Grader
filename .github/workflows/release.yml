@@ -28,6 +28,12 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Set up JDK 17 (compiles the launcher)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
       - name: Read package version
         id: pkg
         shell: pwsh
@@ -49,35 +55,38 @@ jobs:
         # apps/api/dist needs to run, still respecting that hoisting.
         run: npm ci --omit=dev --workspace=@review-grader/api
 
-      - name: Assemble the standalone release folder
+      - name: Stage the app payload (goes inside the jar under app/)
         shell: pwsh
         run: |
-          $release = "release"
-          New-Item -ItemType Directory -Force -Path $release | Out-Null
+          $stage = "stage/app"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
-          # Compiled server + its own production deps.
-          Copy-Item -Recurse -Force "apps/api/dist" "$release/dist"
-          Copy-Item -Force "apps/api/package.json" "$release/package.json"
-          New-Item -ItemType Directory -Force -Path "$release/node_modules" | Out-Null
-          Copy-Item -Recurse -Force "node_modules/*" "$release/node_modules/"
+          Copy-Item -Recurse -Force "apps/api/dist" "$stage/dist"
+
+          New-Item -ItemType Directory -Force -Path "$stage/node_modules" | Out-Null
+          Copy-Item -Recurse -Force "node_modules/*" "$stage/node_modules/"
           if (Test-Path "apps/api/node_modules") {
-            Copy-Item -Recurse -Force "apps/api/node_modules/*" "$release/node_modules/"
+            Copy-Item -Recurse -Force "apps/api/node_modules/*" "$stage/node_modules/"
           }
+          # npm workspaces add a self-referential symlink here
+          # (node_modules/@review-grader/api -> ../../apps/api) that dangles
+          # once copied out in isolation - nothing requires it at runtime.
+          Remove-Item -Recurse -Force "$stage/node_modules/@review-grader" -ErrorAction SilentlyContinue
 
           # Built Angular static assets, served by Express from ./public
           # next to dist/server.js (see apps/api/src/app.ts).
-          Copy-Item -Recurse -Force "apps/api/public" "$release/public"
+          Copy-Item -Recurse -Force "apps/api/public" "$stage/public"
 
-      - name: Verify better-sqlite3's native binary made it into the zip
+      - name: Verify better-sqlite3's native binary is staged
         shell: pwsh
         run: |
-          $binary = "release/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+          $binary = "stage/app/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
           if (-not (Test-Path $binary)) {
-            throw "better-sqlite3 native binary missing from release/node_modules - Windows build did not compile or was not copied in."
+            throw "better-sqlite3 native binary missing from the staged payload - Windows build did not compile or was not copied in."
           }
           Write-Host "Found $binary"
 
-      - name: Download a portable Node.js runtime (latest v22.x)
+      - name: Download a portable Node.js runtime (latest v22.x) into the stage
         shell: pwsh
         run: |
           $index = Invoke-RestMethod -Uri "https://nodejs.org/dist/index.json"
@@ -87,10 +96,32 @@ jobs:
           $url = "https://nodejs.org/dist/$nodeVersion/node-$nodeVersion-win-x64.zip"
           Invoke-WebRequest -Uri $url -OutFile node-portable.zip
           Expand-Archive -Path node-portable.zip -DestinationPath node-extracted
-          New-Item -ItemType Directory -Force -Path "release/node" | Out-Null
-          Copy-Item "node-extracted/node-$nodeVersion-win-x64/node.exe" "release/node/node.exe"
+          New-Item -ItemType Directory -Force -Path "stage/node" | Out-Null
+          Copy-Item "node-extracted/node-$nodeVersion-win-x64/node.exe" "stage/node/node.exe"
 
-      - name: Add the Windows launcher
+      - name: Compile the launcher
+        run: |
+          mkdir classes
+          javac --release 17 -d classes launcher/Main.java
+
+      - name: Build the single runnable jar (launcher + bundled node + app, as jar entries)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          jar cfe release/review-grader.jar Main -C classes . -C stage .
+
+      - name: Download a portable JRE 17 for start.bat to run the jar with
+        shell: pwsh
+        run: |
+          $url = "https://api.adoptium.net/v3/binary/latest/17/ga/windows/x64/jre/hotspot/normal/eclipse?project=jdk"
+          Invoke-WebRequest -Uri $url -OutFile jre-portable.zip
+          Expand-Archive -Path jre-portable.zip -DestinationPath jre-extracted
+          # Adoptium zips extract to one versioned top-level folder (e.g.
+          # jdk-17.0.x+y-jre) - flatten whatever that's named into release/jre.
+          $jreRoot = Get-ChildItem jre-extracted | Select-Object -First 1
+          Copy-Item -Recurse -Force "$($jreRoot.FullName)" "release/jre"
+
+      - name: Add the Windows launcher script
         shell: pwsh
         run: |
           Copy-Item scripts/windows/start.bat release/start.bat
