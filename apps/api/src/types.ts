@@ -33,11 +33,15 @@ export interface DimensionDef {
   order: number;
 }
 
+/** One reviewer's own grade for one dimension - the raw, per-reviewer row.
+ * Displayed scores are computed by averaging these across reviewers
+ * client-side (see IndividualAssessmentComponent). */
 export interface DimensionScoreRow {
   id: string;
   student_id: string;
   review_id: string;
   dimension_id: string;
+  reviewer_id: string;
   score: number;
   updated_at: string;
 }
@@ -46,11 +50,21 @@ export interface AskedQuestionRow {
   id: string;
   student_id: string;
   review_id: string;
+  reviewer_id: string | null;
   text: string;
   rating: GradeBand | null;
   order_index: number;
   created_at: string;
   updated_at: string;
+}
+
+/** A named reviewer on a class's panel (2-3 typical) - not an account, just
+ * a label used to attribute and average scores across reviewers. */
+export interface ClassReviewerRow {
+  id: string;
+  class_id: string;
+  name: string;
+  order_index: number;
 }
 
 export interface ClassRow {
@@ -75,11 +89,29 @@ export interface StudentRow {
   name: string;
 }
 
+/** The team's averaged baseline for one criterion - computed by averaging
+ * across whichever reviewers have scored it (see getTeamScoresByCriterion).
+ * This is the shape every existing consumer (stats, export, rollup,
+ * Score/Review pages) expects; it carries no single reviewer's identity. */
 export interface TeamScoreRow {
   id: string;
   team_id: string;
   review_id: string;
   criterion_id: string;
+  score: number | null;
+  notes: string | null;
+  updated_at: string;
+  raterCount?: number;
+}
+
+/** One reviewer's own raw score for one criterion - used only for
+ * own-entry highlighting in the Score/Review UI, never for stats/export. */
+export interface TeamScoreEntryRow {
+  id: string;
+  team_id: string;
+  review_id: string;
+  criterion_id: string;
+  reviewer_id: string;
   score: number | null;
   notes: string | null;
   updated_at: string;
@@ -115,6 +147,7 @@ export interface TeamWithStudents extends TeamRow {
 export interface ClassData {
   class: ClassRow;
   teams: TeamWithStudents[];
+  reviewers: ClassReviewerRow[];
 }
 
 // Flat row shapes used by both the server-side xlsx export and the

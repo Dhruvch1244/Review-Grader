@@ -7,7 +7,22 @@
         <h1 class="text-2xl font-semibold tracking-tight">{{ team()!.name }} - {{ review()!.label }}</h1>
         <p class="text-sm text-muted-foreground">{{ classData()!.class.name }}</p>
       </div>
-      <app-badge variant="secondary" class="capitalize">{{ session()!.phase }}</app-badge>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-muted-foreground">Scoring as</span>
+        <select
+          appSelect
+          size="sm"
+          class="text-xs"
+          [value]="currentReviewerId() ?? ''"
+          (change)="selectReviewer($any($event.target).value || null)"
+        >
+          <option value="">Pick reviewer…</option>
+          @for (r of classData()!.reviewers; track r.id) {
+            <option [value]="r.id">{{ r.name }}</option>
+          }
+        </select>
+        <app-badge variant="secondary" class="capitalize">{{ session()!.phase }}</app-badge>
+      </div>
     </div>
 
     @switch (session()!.phase) {
@@ -36,6 +51,9 @@
             <app-card-title class="text-sm">Score live - Avg: {{ teamAvg() ?? '—' }} / 5</app-card-title>
           </app-card-header>
           <app-card-content>
+            @if (!currentReviewerId()) {
+              <p class="text-xs text-amber-600 dark:text-amber-500 mb-3">Pick who's scoring above to grade criteria.</p>
+            }
             <ul class="space-y-3">
               @for (c of review()!.criteria; track c.id) {
                 <li class="border-t pt-3 first:border-t-0 first:pt-0">
@@ -45,14 +63,20 @@
                         {{ c.category }}
                       </app-badge>
                       {{ c.text }}
+                      @if (teamScores()[teamId() + ':' + reviewId() + ':' + c.id]; as avg) {
+                        <span class="text-xs text-muted-foreground">
+                          - avg {{ avg.score ?? '—' }}/5 ({{ avg.raterCount ?? 0 }} rater{{ avg.raterCount === 1 ? '' : 's' }})
+                        </span>
+                      }
                     </p>
                     <div class="flex gap-1 shrink-0">
                       @for (n of scoreOptions; track n) {
                         <button
                           appButton
                           size="sm"
-                          [variant]="teamScores()[teamId() + ':' + reviewId() + ':' + c.id]?.score === n ? 'default' : 'outline'"
+                          [variant]="myEntryFor(c.id)?.score === n ? 'default' : 'outline'"
                           class="size-7 p-0 text-xs"
+                          [disabled]="!currentReviewerId()"
                           (click)="setCriterionScore(c.id, n)"
                         >
                           {{ n }}
@@ -93,6 +117,8 @@
                   [criteria]="review()!.criteria"
                   [teamScores]="teamScoresByCriterion()"
                   [dimensions]="dimensions()"
+                  [reviewers]="classData()!.reviewers"
+                  [currentReviewerId]="currentReviewerId()"
                   (deltaChange)="setDeltaLocal(s.id, $event)"
                 />
               </app-card-content>

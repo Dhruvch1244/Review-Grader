@@ -12,6 +12,7 @@ const ADMIN_NAV_LINKS = [
   { href: '/dimensions', label: 'Dimensions' },
   { href: '/normalize', label: 'Normalize' },
   { href: '/merge', label: 'Merge' },
+  { href: '/database', label: 'Database' },
 ];
 
 const REVIEWER_NAV_LINKS = [

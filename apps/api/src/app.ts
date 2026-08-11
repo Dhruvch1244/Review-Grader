@@ -15,6 +15,7 @@ import { reviewsRouter } from "./routes/reviews";
 import { normalizeRouter } from "./routes/normalize";
 import { exportRouter } from "./routes/export";
 import { resetAllRouter } from "./routes/reset-all";
+import { dbViewerRouter } from "./routes/db-viewer";
 
 export function createApp() {
   const app = express();
@@ -40,6 +41,7 @@ export function createApp() {
   app.use("/api/normalize", normalizeRouter);
   app.use("/api/export", exportRouter);
   app.use("/api/reset-all", resetAllRouter);
+  app.use("/api/db-viewer", dbViewerRouter);
 
   // Serve the built Angular app (production only) - mounted AFTER the API
   // routes above so it never shadows them. The static dir is resolved at

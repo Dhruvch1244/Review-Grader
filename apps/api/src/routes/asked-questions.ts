@@ -13,11 +13,11 @@ askedQuestionsRouter.get("/", (req, res) => {
 });
 
 askedQuestionsRouter.post("/", (req, res) => {
-  const { studentId, reviewId, text } = req.body ?? {};
+  const { studentId, reviewId, reviewerId, text } = req.body ?? {};
   if (!studentId || !reviewId || !text) {
     return res.status(400).json({ error: "studentId, reviewId, and text are required" });
   }
-  res.json(addAskedQuestion(studentId, reviewId, text));
+  res.json(addAskedQuestion(studentId, reviewId, reviewerId ?? null, text));
 });
 
 askedQuestionsRouter.put("/:id", (req, res) => {

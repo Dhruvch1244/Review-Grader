@@ -1,0 +1,101 @@
+<div class="space-y-6">
+  <div>
+    <h1 class="text-2xl font-semibold tracking-tight">Database</h1>
+    <p class="text-sm text-muted-foreground mt-1">
+      Browse tables or run a read-only query directly against the SQLite file. Only SELECT queries are allowed.
+    </p>
+  </div>
+
+  <div class="grid gap-4 md:grid-cols-[220px_1fr]">
+    <app-card class="h-fit">
+      <app-card-header>
+        <app-card-title class="text-sm">Tables</app-card-title>
+      </app-card-header>
+      <app-card-content class="space-y-0.5">
+        @for (t of tables(); track t.name) {
+          <button
+            (click)="browseTable(t.name)"
+            [class]="
+              'w-full text-left text-sm px-2 py-1.5 rounded-md transition-colors flex items-center justify-between gap-2 ' +
+              (activeTable() === t.name ? 'bg-accent font-medium' : 'hover:bg-accent/50')
+            "
+          >
+            <span class="truncate">{{ t.name }}</span>
+            <span class="text-xs text-muted-foreground shrink-0">{{ t.rowCount }}</span>
+          </button>
+        }
+      </app-card-content>
+    </app-card>
+
+    <div class="space-y-4">
+      <app-card>
+        <app-card-header>
+          <app-card-title class="text-sm">Query</app-card-title>
+        </app-card-header>
+        <app-card-content class="space-y-2">
+          <textarea
+            appTextarea
+            [value]="sql()"
+            (input)="sql.set($any($event.target).value)"
+            rows="3"
+            class="w-full font-mono text-xs"
+            placeholder="SELECT * FROM students LIMIT 20"
+          ></textarea>
+          <button appButton size="sm" (click)="runQuery()" [disabled]="loading()">
+            {{ loading() ? 'Running…' : 'Run query' }}
+          </button>
+        </app-card-content>
+      </app-card>
+
+      @if (error()) {
+        <app-alert variant="destructive">
+          <app-alert-title>Query error</app-alert-title>
+          <app-alert-description>{{ error() }}</app-alert-description>
+        </app-alert>
+      }
+
+      @if (result(); as result) {
+        <app-card>
+          <app-card-header>
+            <app-card-title class="text-sm">
+              {{ activeTable() ?? 'Results' }}
+              @if (result.total !== undefined) {
+                <span class="text-muted-foreground font-normal"> - {{ result.total }} rows</span>
+              }
+              @if (result.truncated) {
+                <span class="text-muted-foreground font-normal"> (showing first 500)</span>
+              }
+            </app-card-title>
+          </app-card-header>
+          <app-card-content>
+            <div class="overflow-x-auto">
+              <table class="text-xs w-full">
+                <thead class="bg-muted/50">
+                  <tr>
+                    @for (col of result.columns; track col) {
+                      <th class="text-left px-2 py-1.5 font-medium whitespace-nowrap">{{ col }}</th>
+                    }
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of result.rows; track $index) {
+                    <tr class="border-t">
+                      @for (col of result.columns; track col) {
+                        <td class="px-2 py-1.5 whitespace-nowrap max-w-xs truncate" [title]="cellText(row[col])">
+                          {{ cellText(row[col]) }}
+                        </td>
+                      }
+                    </tr>
+                  }
+                </tbody>
+              </table>
+              @if (result.rows.length === 0) {
+                <p class="text-xs text-muted-foreground py-3">No rows.</p>
+              }
+            </div>
+          </app-card-content>
+        </app-card>
+      }
+    </div>
+  </div>
+</div>

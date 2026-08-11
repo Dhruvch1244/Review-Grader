@@ -36,7 +36,7 @@ export class BulkImportComponent {
       { names },
       `class-autofill-${this.classData().class.id}`
     );
-    this.update.emit({ class: res.class, teams: res.teams });
+    this.update.emit({ class: res.class, teams: res.teams, reviewers: res.reviewers });
     this.saving.set(false);
     this.paste.set('');
     if (typeof res.applied === 'number') {

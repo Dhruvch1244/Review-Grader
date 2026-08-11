@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getScoresForClass, upsertTeamScore, upsertIndividualScore, upsertGrace } from "../queries";
+import { getScoresForClass, getTeamScoreEntries, upsertTeamScore, upsertIndividualScore, upsertGrace } from "../queries";
 
 export const scoresRouter = Router();
 
@@ -9,15 +9,28 @@ scoresRouter.get("/", (req, res) => {
   res.json(getScoresForClass(classId));
 });
 
+/** Raw per-reviewer team-score entries for one team+review, so the Score/
+ * Review UI can highlight "what did I click" separately from the averaged
+ * display everyone sees. */
+scoresRouter.get("/team-entries", (req, res) => {
+  const teamId = req.query.teamId as string | undefined;
+  const reviewId = req.query.reviewId as string | undefined;
+  if (!teamId || !reviewId) {
+    return res.status(400).json({ error: "teamId and reviewId are required" });
+  }
+  res.json(getTeamScoreEntries(teamId, reviewId));
+});
+
 scoresRouter.put("/team", (req, res) => {
   const body = req.body ?? {};
-  if (!body.teamId || !body.reviewId || !body.criterionId) {
-    return res.status(400).json({ error: "teamId, reviewId, criterionId are required" });
+  if (!body.teamId || !body.reviewId || !body.criterionId || !body.reviewerId) {
+    return res.status(400).json({ error: "teamId, reviewId, criterionId, reviewerId are required" });
   }
   const row = upsertTeamScore({
     teamId: body.teamId,
     reviewId: body.reviewId,
     criterionId: body.criterionId,
+    reviewerId: body.reviewerId,
     score: body.score ?? null,
     notes: body.notes ?? null,
   });

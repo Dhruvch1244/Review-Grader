@@ -45,17 +45,27 @@
     </div>
   }
 
+  @if (!currentReviewerId()) {
+    <p class="text-[11px] text-amber-600 dark:text-amber-500">Pick who's scoring above to grade dimensions or log questions.</p>
+  }
+
   <div class="rounded-lg border divide-y">
     @for (d of dimensions(); track d.id) {
       <div class="px-2.5 py-2 flex items-center justify-between gap-2 text-xs">
-        <span class="font-medium">{{ d.label }} <span class="text-muted-foreground font-normal">({{ d.weightPercent }}%)</span></span>
+        <span class="font-medium">
+          {{ d.label }} <span class="text-muted-foreground font-normal">({{ d.weightPercent }}%)</span>
+          @if (avgScoreForDimension(d.id); as avg) {
+            <span class="text-muted-foreground font-normal"> - avg {{ avg.avg }}/5 ({{ avg.count }})</span>
+          }
+        </span>
         <div class="flex gap-1 shrink-0">
           @for (band of BANDS; track band) {
             <button
               appButton
               size="sm"
-              [variant]="scoreForDimension(d.id) === GRADE_BAND_VALUE[band] ? 'default' : 'outline'"
+              [variant]="myScoreForDimension(d.id) === GRADE_BAND_VALUE[band] ? 'default' : 'outline'"
               class="h-6 px-1.5 text-[10px]"
+              [disabled]="!currentReviewerId()"
               (click)="setDimensionScore(d.id, band)"
             >
               {{ GRADE_BAND_LABEL[band] }}
@@ -73,7 +83,10 @@
         @for (q of askedQuestions(); track q.id; let i = $index) {
           <li class="rounded-lg border bg-muted/30 px-2.5 py-1.5 text-xs space-y-1">
             <div class="flex items-start justify-between gap-2">
-              <p class="flex-1"><span class="text-muted-foreground">Q{{ i + 1 }}:</span> {{ q.text }}</p>
+              <p class="flex-1">
+                <span class="text-muted-foreground">Q{{ i + 1 }}:</span> {{ q.text }}
+                <app-badge variant="outline" class="h-4 px-1 text-[9px] align-middle ml-1">{{ reviewerName(q.reviewer_id) }}</app-badge>
+              </p>
               <button (click)="removeQuestion(q.id)" class="text-muted-foreground hover:text-destructive shrink-0" title="Remove">
                 ×
               </button>
@@ -101,10 +114,13 @@
         [value]="newQuestionText()"
         (input)="newQuestionText.set($any($event.target).value)"
         (keydown.enter)="addQuestion()"
+        [disabled]="!currentReviewerId()"
         placeholder="Question you asked…"
         class="h-7 text-xs"
       />
-      <button appButton size="sm" class="h-7 text-xs shrink-0" (click)="addQuestion()">+ Add</button>
+      <button appButton size="sm" class="h-7 text-xs shrink-0" [disabled]="!currentReviewerId()" (click)="addQuestion()">
+        + Add
+      </button>
     </div>
   </div>
 </div>

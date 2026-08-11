@@ -18,6 +18,7 @@ import { CardComponent, CardContentComponent } from '../../ui/card.component';
 import { BadgeComponent } from '../../ui/badge.component';
 import { ButtonComponent } from '../../ui/button.component';
 import { ClassSettingsComponent } from './class-settings.component';
+import { ClassReviewersComponent } from './class-reviewers.component';
 import { BulkImportComponent } from './bulk-import.component';
 import { TeamRosterComponent } from './team-roster.component';
 
@@ -31,6 +32,7 @@ import { TeamRosterComponent } from './team-roster.component';
     BadgeComponent,
     ButtonComponent,
     ClassSettingsComponent,
+    ClassReviewersComponent,
     BulkImportComponent,
     TeamRosterComponent,
     LucideAlertTriangle,
@@ -86,7 +88,7 @@ export class SetupComponent {
     const totalSlots = this.expanded()[classId].teams.reduce((n, t) => n + t.students.length, 0);
     const names = generateIndianNames(totalSlots);
     const res = await this.api.apiWrite<ClassData>('PATCH', `/api/classes/${classId}/autofill`, { names });
-    this.setClassData(classId, { class: res.class, teams: res.teams });
+    this.setClassData(classId, { class: res.class, teams: res.teams, reviewers: res.reviewers });
     this.toast.success('Shuffled in a fresh set of names');
   }
 

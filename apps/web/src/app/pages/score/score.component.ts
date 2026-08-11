@@ -8,12 +8,15 @@ import type {
   ReviewDef,
   CriterionDef,
   TeamScoreRow,
+  TeamScoreEntryRow,
   IndividualScoreRow,
   DimensionDef,
 } from '../../core/models/types';
+import { getStoredReviewerId, setStoredReviewerId } from '../../core/reviewer-session';
 import { ButtonComponent } from '../../ui/button.component';
 import { CardComponent, CardContentComponent, CardHeaderComponent, CardTitleComponent } from '../../ui/card.component';
 import { BadgeComponent } from '../../ui/badge.component';
+import { SelectDirective } from '../../ui/select.directive';
 import { IndividualAssessmentComponent } from '../../shared/individual-assessment.component';
 
 type ReviewWithCriteria = ReviewDef & { criteria: CriterionDef[] };
@@ -29,6 +32,7 @@ type ReviewWithCriteria = ReviewDef & { criteria: CriterionDef[] };
     CardHeaderComponent,
     CardTitleComponent,
     BadgeComponent,
+    SelectDirective,
     IndividualAssessmentComponent,
     LucidePlayCircle,
     LucideRotateCcw,
@@ -49,6 +53,8 @@ export class ScoreComponent {
   teamId = signal<string | null>(null);
   resetNonce = signal(0);
   dimensions = signal<DimensionDef[]>([]);
+  teamScoreEntries = signal<TeamScoreEntryRow[]>([]);
+  currentReviewerId = signal<string | null>(null);
 
   readonly scoreOptions = [1, 2, 3, 4, 5];
   readonly deltaOptions = [-2, -1, 0, 1, 2];
@@ -83,25 +89,44 @@ export class ScoreComponent {
   constructor() {
     this.api.apiGet<DimensionDef[]>('/api/dimensions').then((d) => this.dimensions.set(d ?? []));
 
-    effect(() => {
-      const classId = this.classId();
-      this.api.apiGet<ClassData>(`/api/classes/${classId}`).then((data) => {
-        if (data) {
-          this.classData.set(data);
-          if (!this.teamId()) this.teamId.set(data.teams[0]?.id ?? null);
-        }
-      });
-      this.api.apiGet<ReviewWithCriteria[]>('/api/reviews').then((r) => this.reviews.set(r ?? []));
-      this.api
-        .apiGet<{ teamScores: TeamScoreRow[]; individualScores: IndividualScoreRow[] }>(
-          `/api/scores?classId=${classId}`
-        )
-        .then((data) => {
-          if (!data) return;
-          this.teamScores.set(Object.fromEntries(data.teamScores.map((s) => [s.id, s])));
-          this.individualScores.set(Object.fromEntries(data.individualScores.map((s) => [s.id, s])));
+    effect(
+      () => {
+        const classId = this.classId();
+        this.currentReviewerId.set(getStoredReviewerId(classId));
+        this.api.apiGet<ClassData>(`/api/classes/${classId}`).then((data) => {
+          if (data) {
+            this.classData.set(data);
+            if (!this.teamId()) this.teamId.set(data.teams[0]?.id ?? null);
+          }
         });
-    });
+        this.api.apiGet<ReviewWithCriteria[]>('/api/reviews').then((r) => this.reviews.set(r ?? []));
+        this.api
+          .apiGet<{ teamScores: TeamScoreRow[]; individualScores: IndividualScoreRow[] }>(
+            `/api/scores?classId=${classId}`
+          )
+          .then((data) => {
+            if (!data) return;
+            this.teamScores.set(Object.fromEntries(data.teamScores.map((s) => [s.id, s])));
+            this.individualScores.set(Object.fromEntries(data.individualScores.map((s) => [s.id, s])));
+          });
+      },
+      { allowSignalWrites: true }
+    );
+
+    effect(
+      () => {
+        const teamId = this.teamId();
+        const reviewId = this.reviewId();
+        if (!teamId) {
+          this.teamScoreEntries.set([]);
+          return;
+        }
+        this.api
+          .apiGet<TeamScoreEntryRow[]>(`/api/scores/team-entries?teamId=${teamId}&reviewId=${reviewId}`)
+          .then((entries) => this.teamScoreEntries.set(entries ?? []));
+      },
+      { allowSignalWrites: true }
+    );
   }
 
   selectReview(id: string) {
@@ -110,6 +135,43 @@ export class ScoreComponent {
 
   selectTeam(id: string) {
     this.teamId.set(id);
+  }
+
+  selectReviewer(id: string | null) {
+    setStoredReviewerId(this.classId(), id);
+    this.currentReviewerId.set(id);
+  }
+
+  /** This reviewer's own row for a criterion - drives button highlight + notes binding. */
+  myEntryFor(criterionId: string): TeamScoreEntryRow | undefined {
+    const reviewerId = this.currentReviewerId();
+    if (!reviewerId) return undefined;
+    return this.teamScoreEntries().find((e) => e.criterion_id === criterionId && e.reviewer_id === reviewerId);
+  }
+
+  private recomputeAverage(teamId: string, reviewId: string, criterionId: string, entries: TeamScoreEntryRow[]) {
+    const key = this.teamScoreKey(teamId, reviewId, criterionId);
+    const mine = entries.filter((e) => e.criterion_id === criterionId && typeof e.score === 'number');
+    const notesEntry = entries.find((e) => e.criterion_id === criterionId && e.notes);
+    if (mine.length === 0) {
+      const { [key]: _removed, ...rest } = this.teamScores();
+      this.teamScores.set(rest);
+      return;
+    }
+    const avg = Math.round((mine.reduce((sum, e) => sum + (e.score ?? 0), 0) / mine.length) * 100) / 100;
+    this.teamScores.set({
+      ...this.teamScores(),
+      [key]: {
+        id: key,
+        team_id: teamId,
+        review_id: reviewId,
+        criterion_id: criterionId,
+        score: avg,
+        notes: notesEntry?.notes ?? null,
+        updated_at: new Date().toISOString(),
+        raterCount: mine.length,
+      },
+    });
   }
 
   teamScoreKey(teamId: string, reviewId: string, criterionId: string) {
@@ -136,25 +198,32 @@ export class ScoreComponent {
   async setCriterionScore(criterionId: string, score: number) {
     const team = this.team();
     const review = this.review();
-    if (!team || !review) return;
-    const key = `${team.id}:${review.id}:${criterionId}`;
-    const existingNotes = this.teamScores()[key]?.notes ?? null;
-    this.teamScores.set({
-      ...this.teamScores(),
-      [key]: {
+    const reviewerId = this.currentReviewerId();
+    if (!team || !review || !reviewerId) return;
+    const key = `${team.id}:${review.id}:${criterionId}:${reviewerId}`;
+    const existingNotes = this.myEntryFor(criterionId)?.notes ?? null;
+    const withoutMine = this.teamScoreEntries().filter(
+      (e) => !(e.criterion_id === criterionId && e.reviewer_id === reviewerId)
+    );
+    const optimistic = [
+      ...withoutMine,
+      {
         id: key,
         team_id: team.id,
         review_id: review.id,
         criterion_id: criterionId,
+        reviewer_id: reviewerId,
         score,
         notes: existingNotes,
         updated_at: new Date().toISOString(),
       },
-    });
+    ];
+    this.teamScoreEntries.set(optimistic);
+    this.recomputeAverage(team.id, review.id, criterionId, optimistic);
     await this.api.apiWrite(
       'PUT',
       '/api/scores/team',
-      { teamId: team.id, reviewId: review.id, criterionId, score, notes: existingNotes },
+      { teamId: team.id, reviewId: review.id, criterionId, reviewerId, score, notes: existingNotes },
       `team-score-${key}`
     );
   }
@@ -162,25 +231,32 @@ export class ScoreComponent {
   async setCriterionNotes(criterionId: string, notes: string) {
     const team = this.team();
     const review = this.review();
-    if (!team || !review) return;
-    const key = `${team.id}:${review.id}:${criterionId}`;
-    const existingScore = this.teamScores()[key]?.score ?? null;
-    this.teamScores.set({
-      ...this.teamScores(),
-      [key]: {
+    const reviewerId = this.currentReviewerId();
+    if (!team || !review || !reviewerId) return;
+    const key = `${team.id}:${review.id}:${criterionId}:${reviewerId}`;
+    const existingScore = this.myEntryFor(criterionId)?.score ?? null;
+    const withoutMine = this.teamScoreEntries().filter(
+      (e) => !(e.criterion_id === criterionId && e.reviewer_id === reviewerId)
+    );
+    const optimistic = [
+      ...withoutMine,
+      {
         id: key,
         team_id: team.id,
         review_id: review.id,
         criterion_id: criterionId,
+        reviewer_id: reviewerId,
         score: existingScore,
         notes,
         updated_at: new Date().toISOString(),
       },
-    });
+    ];
+    this.teamScoreEntries.set(optimistic);
+    this.recomputeAverage(team.id, review.id, criterionId, optimistic);
     await this.api.apiWrite(
       'PUT',
       '/api/scores/team',
-      { teamId: team.id, reviewId: review.id, criterionId, score: existingScore, notes },
+      { teamId: team.id, reviewId: review.id, criterionId, reviewerId, score: existingScore, notes },
       `team-score-${key}`
     );
   }

@@ -13,9 +13,9 @@ dimensionScoresRouter.get("/", (req, res) => {
 });
 
 dimensionScoresRouter.put("/", (req, res) => {
-  const { studentId, reviewId, dimensionId, score } = req.body ?? {};
-  if (!studentId || !reviewId || !dimensionId) {
-    return res.status(400).json({ error: "studentId, reviewId, and dimensionId are required" });
+  const { studentId, reviewId, dimensionId, reviewerId, score } = req.body ?? {};
+  if (!studentId || !reviewId || !dimensionId || !reviewerId) {
+    return res.status(400).json({ error: "studentId, reviewId, dimensionId, and reviewerId are required" });
   }
-  res.json(upsertDimensionScore(studentId, reviewId, dimensionId, score ?? null));
+  res.json(upsertDimensionScore(studentId, reviewId, dimensionId, reviewerId, score ?? null));
 });

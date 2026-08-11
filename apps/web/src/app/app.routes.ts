@@ -31,6 +31,11 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/merge/merge.component').then((m) => m.MergeComponent),
   },
   {
+    path: 'database',
+    canActivate: [adminGuard],
+    loadComponent: () => import('./pages/db-viewer/db-viewer.component').then((m) => m.DbViewerComponent),
+  },
+  {
     path: 'score/:classId',
     loadComponent: () => import('./pages/score/score.component').then((m) => m.ScoreComponent),
   },

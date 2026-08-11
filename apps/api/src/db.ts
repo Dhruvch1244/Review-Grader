@@ -57,15 +57,27 @@ CREATE TABLE IF NOT EXISTS criteria (
   order_index INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS class_reviewers (
+  id TEXT PRIMARY KEY,
+  class_id TEXT NOT NULL REFERENCES classes(id),
+  name TEXT NOT NULL,
+  order_index INTEGER NOT NULL
+);
+
+-- A panel typically has 2-3 reviewers scoring the same team/student
+-- independently - each reviewer's score is its own row here, and the
+-- team's displayed baseline is the average across whichever reviewers
+-- have scored a given criterion (see getTeamScoresByCriterion).
 CREATE TABLE IF NOT EXISTS team_scores (
   id TEXT PRIMARY KEY,
   team_id TEXT NOT NULL,
   review_id TEXT NOT NULL,
   criterion_id TEXT NOT NULL,
+  reviewer_id TEXT NOT NULL,
   score INTEGER,
   notes TEXT,
   updated_at TEXT NOT NULL,
-  UNIQUE(team_id, review_id, criterion_id)
+  UNIQUE(team_id, review_id, criterion_id, reviewer_id)
 );
 
 CREATE TABLE IF NOT EXISTS individual_scores (
@@ -87,20 +99,28 @@ CREATE TABLE IF NOT EXISTS dimensions (
   order_index INTEGER NOT NULL
 );
 
+-- Same per-reviewer shape as team_scores - each reviewer grades a
+-- dimension independently, averaged across reviewers per dimension, then
+-- weight-averaged across dimensions (see upsertDimensionScore).
 CREATE TABLE IF NOT EXISTS dimension_scores (
   id TEXT PRIMARY KEY,
   student_id TEXT NOT NULL,
   review_id TEXT NOT NULL,
   dimension_id TEXT NOT NULL,
+  reviewer_id TEXT NOT NULL,
   score INTEGER NOT NULL,
   updated_at TEXT NOT NULL,
-  UNIQUE(student_id, review_id, dimension_id)
+  UNIQUE(student_id, review_id, dimension_id, reviewer_id)
 );
 
+-- Not averaged like scores above - each question is attributed to
+-- whichever reviewer logged it (reviewer_id), so the panel can see who
+-- asked what while multiple reviewers add to the same shared list.
 CREATE TABLE IF NOT EXISTS asked_questions (
   id TEXT PRIMARY KEY,
   student_id TEXT NOT NULL,
   review_id TEXT NOT NULL,
+  reviewer_id TEXT,
   text TEXT NOT NULL,
   rating TEXT,
   order_index INTEGER NOT NULL,

@@ -1,0 +1,36 @@
+<div class="space-y-1.5">
+  <p class="text-xs text-muted-foreground">Reviewers (2-3 typical) - each panelist's scores are averaged together.</p>
+  @for (r of classData().reviewers; track r.id) {
+    <div class="flex items-center gap-1.5">
+      <input
+        appInput
+        [value]="r.name"
+        (input)="renameLocally(r.id, $any($event.target).value)"
+        (blur)="commitRename(r.id, $any($event.target).value)"
+        class="h-8 text-sm w-56"
+      />
+      <button
+        appButton
+        variant="ghost"
+        size="icon"
+        class="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+        (click)="removeReviewer(r.id)"
+      >
+        <svg lucideTrash2 class="size-3.5"></svg>
+      </button>
+    </div>
+  }
+  <div class="flex items-center gap-1.5">
+    <input
+      appInput
+      [value]="newName()"
+      (input)="newName.set($any($event.target).value)"
+      (keydown.enter)="addReviewer()"
+      placeholder="Add a reviewer"
+      class="h-8 text-sm w-56"
+    />
+    <button appButton variant="ghost" size="icon" class="size-8 shrink-0 text-muted-foreground" (click)="addReviewer()">
+      <svg lucidePlus class="size-3.5"></svg>
+    </button>
+  </div>
+</div>

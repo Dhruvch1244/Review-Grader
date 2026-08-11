@@ -7,6 +7,7 @@ import type {
   ClassData,
   TeamWithStudents,
   TeamScoreRow,
+  TeamScoreEntryRow,
   IndividualScoreRow,
   ReviewDef,
   CriterionDef,
@@ -16,7 +17,43 @@ import type {
   AskedQuestionRow,
   GradeBand,
   ReviewSessionRow,
+  ClassReviewerRow,
 } from "./types";
+
+// ---- Class reviewers (2-3 per panel, typical) ----
+
+export function listClassReviewers(classId: string): ClassReviewerRow[] {
+  return getDb()
+    .prepare("SELECT * FROM class_reviewers WHERE class_id = ? ORDER BY order_index")
+    .all(classId) as ClassReviewerRow[];
+}
+
+export function addClassReviewer(classId: string, name: string): ClassReviewerRow {
+  const db = getDb();
+  const maxOrder =
+    (
+      db.prepare("SELECT MAX(order_index) as m FROM class_reviewers WHERE class_id = ?").get(classId) as {
+        m: number | null;
+      }
+    ).m ?? -1;
+  const id = randomUUID();
+  const order_index = maxOrder + 1;
+  db.prepare("INSERT INTO class_reviewers (id, class_id, name, order_index) VALUES (?, ?, ?, ?)").run(
+    id,
+    classId,
+    name,
+    order_index
+  );
+  return { id, class_id: classId, name, order_index };
+}
+
+export function renameClassReviewer(id: string, name: string): void {
+  getDb().prepare("UPDATE class_reviewers SET name = ? WHERE id = ?").run(name, id);
+}
+
+export function deleteClassReviewer(id: string): void {
+  getDb().prepare("DELETE FROM class_reviewers WHERE id = ?").run(id);
+}
 
 export function listClasses(): ClassRow[] {
   return getDb().prepare("SELECT * FROM classes ORDER BY name").all() as ClassRow[];
@@ -38,7 +75,7 @@ export function getClassData(classId: string): ClassData | null {
     ...t,
     students: students.filter((s) => s.team_id === t.id),
   }));
-  return { class: cls, teams: teamsWithStudents };
+  return { class: cls, teams: teamsWithStudents, reviewers: listClassReviewers(classId) };
 }
 
 export function renameStudent(studentId: string, name: string): void {
@@ -198,23 +235,35 @@ export function listReviews(): (ReviewDef & { criteria: CriterionDef[] })[] {
 
 // ---- Scoring ----
 
+/** Upserts ONE reviewer's own score for a criterion - the team's displayed
+ * baseline is the average across every reviewer who has scored it (see
+ * getTeamScoresByCriterion), not a single shared value. */
 export function upsertTeamScore(input: {
   teamId: string;
   reviewId: string;
   criterionId: string;
+  reviewerId: string;
   score: number | null;
   notes: string | null;
-}): TeamScoreRow {
+}): TeamScoreEntryRow {
   const db = getDb();
-  const id = `${input.teamId}:${input.reviewId}:${input.criterionId}`;
+  const id = `${input.teamId}:${input.reviewId}:${input.criterionId}:${input.reviewerId}`;
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO team_scores (id, team_id, review_id, criterion_id, score, notes, updated_at)
-     VALUES (@id, @teamId, @reviewId, @criterionId, @score, @notes, @now)
-     ON CONFLICT(team_id, review_id, criterion_id)
+    `INSERT INTO team_scores (id, team_id, review_id, criterion_id, reviewer_id, score, notes, updated_at)
+     VALUES (@id, @teamId, @reviewId, @criterionId, @reviewerId, @score, @notes, @now)
+     ON CONFLICT(team_id, review_id, criterion_id, reviewer_id)
      DO UPDATE SET score = @score, notes = @notes, updated_at = @now`
   ).run({ id, ...input, now });
-  return db.prepare("SELECT * FROM team_scores WHERE id = ?").get(id) as TeamScoreRow;
+  return db.prepare("SELECT * FROM team_scores WHERE id = ?").get(id) as TeamScoreEntryRow;
+}
+
+/** Raw per-reviewer rows for one team+review - used only for own-entry
+ * highlighting in the Score/Review UI, never for stats/export. */
+export function getTeamScoreEntries(teamId: string, reviewId: string): TeamScoreEntryRow[] {
+  return getDb()
+    .prepare("SELECT * FROM team_scores WHERE team_id = ? AND review_id = ?")
+    .all(teamId, reviewId) as TeamScoreEntryRow[];
 }
 
 export function upsertIndividualScore(input: {
@@ -235,12 +284,33 @@ export function upsertIndividualScore(input: {
   return db.prepare("SELECT * FROM individual_scores WHERE id = ?").get(id) as IndividualScoreRow;
 }
 
+/** The team's averaged baseline per criterion - one row per criterion that
+ * at least one reviewer has scored, with `score` the average across
+ * however many reviewers scored it. */
 export function getTeamScoresByCriterion(teamId: string, reviewId: string): Record<string, TeamScoreRow> {
   const db = getDb();
   const rows = db
-    .prepare("SELECT * FROM team_scores WHERE team_id = ? AND review_id = ?")
-    .all(teamId, reviewId) as TeamScoreRow[];
-  return Object.fromEntries(rows.map((r) => [r.criterion_id, r]));
+    .prepare(
+      `SELECT criterion_id, AVG(score) as avgScore, COUNT(score) as raterCount, MAX(updated_at) as updatedAt
+       FROM team_scores WHERE team_id = ? AND review_id = ? AND score IS NOT NULL
+       GROUP BY criterion_id`
+    )
+    .all(teamId, reviewId) as { criterion_id: string; avgScore: number; raterCount: number; updatedAt: string }[];
+  return Object.fromEntries(
+    rows.map((r) => [
+      r.criterion_id,
+      {
+        id: `${teamId}:${reviewId}:${r.criterion_id}`,
+        team_id: teamId,
+        review_id: reviewId,
+        criterion_id: r.criterion_id,
+        score: Math.round(r.avgScore * 100) / 100,
+        notes: null,
+        updated_at: r.updatedAt,
+        raterCount: r.raterCount,
+      } satisfies TeamScoreRow,
+    ])
+  );
 }
 
 export function upsertGrace(studentId: string, reviewId: string, grace: number | null): IndividualScoreRow {
@@ -255,16 +325,39 @@ export function upsertGrace(studentId: string, reviewId: string, grace: number |
   return db.prepare("SELECT * FROM individual_scores WHERE id = ?").get(id) as IndividualScoreRow;
 }
 
+/** Class-wide averaged team scores (see getTeamScoresByCriterion) plus raw
+ * individual scores - the shape Score/Review/Stats/Export all expect. */
 export function getScoresForClass(classId: string): {
   teamScores: TeamScoreRow[];
   individualScores: IndividualScoreRow[];
 } {
   const db = getDb();
-  const teamScores = db
+  const grouped = db
     .prepare(
-      `SELECT ts.* FROM team_scores ts JOIN teams t ON ts.team_id = t.id WHERE t.class_id = ?`
+      `SELECT ts.team_id, ts.review_id, ts.criterion_id, AVG(ts.score) as avgScore,
+              COUNT(ts.score) as raterCount, MAX(ts.updated_at) as updatedAt
+       FROM team_scores ts JOIN teams t ON ts.team_id = t.id
+       WHERE t.class_id = ? AND ts.score IS NOT NULL
+       GROUP BY ts.team_id, ts.review_id, ts.criterion_id`
     )
-    .all(classId) as TeamScoreRow[];
+    .all(classId) as {
+    team_id: string;
+    review_id: string;
+    criterion_id: string;
+    avgScore: number;
+    raterCount: number;
+    updatedAt: string;
+  }[];
+  const teamScores: TeamScoreRow[] = grouped.map((r) => ({
+    id: `${r.team_id}:${r.review_id}:${r.criterion_id}`,
+    team_id: r.team_id,
+    review_id: r.review_id,
+    criterion_id: r.criterion_id,
+    score: Math.round(r.avgScore * 100) / 100,
+    notes: null,
+    updated_at: r.updatedAt,
+    raterCount: r.raterCount,
+  }));
   const individualScores = db
     .prepare(
       `SELECT ix.* FROM individual_scores ix
@@ -312,44 +405,53 @@ export function getDimensionScores(studentId: string, reviewId: string): Dimensi
 }
 
 /**
- * Dimensions are graded independently and don't all need a score at once -
- * the delta is the weighted average of whatever's been graded so far, with
- * those dimensions' weights re-normalized to sum to 100% among themselves,
- * centered on 3 ("meets") so it nudges the team baseline up or down the
- * same way the old question-rating delta did. Set score to null to clear a
- * dimension's grade (excludes it from the average again).
+ * Upserts ONE reviewer's own grade for one dimension (a panel typically has
+ * 2-3 reviewers grading independently). The delta is computed in two
+ * averaging passes: first, average across whichever reviewers have graded
+ * each dimension; then weight-average those per-dimension averages across
+ * dimensions, re-normalizing weights among just the dimensions that have
+ * at least one grade so far - centered on 3 ("meets") so it nudges the
+ * team baseline up or down the same way the old question-rating delta did.
+ * Set score to null to clear this reviewer's grade for a dimension.
  */
 export function upsertDimensionScore(
   studentId: string,
   reviewId: string,
   dimensionId: string,
+  reviewerId: string,
   score: number | null
 ): { delta: number | null; scores: DimensionScoreRow[] } {
   const db = getDb();
   const now = new Date().toISOString();
   if (score === null) {
     db.prepare(
-      "DELETE FROM dimension_scores WHERE student_id = ? AND review_id = ? AND dimension_id = ?"
-    ).run(studentId, reviewId, dimensionId);
+      "DELETE FROM dimension_scores WHERE student_id = ? AND review_id = ? AND dimension_id = ? AND reviewer_id = ?"
+    ).run(studentId, reviewId, dimensionId, reviewerId);
   } else {
-    const id = `${studentId}:${reviewId}:${dimensionId}`;
+    const id = `${studentId}:${reviewId}:${dimensionId}:${reviewerId}`;
     db.prepare(
-      `INSERT INTO dimension_scores (id, student_id, review_id, dimension_id, score, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(student_id, review_id, dimension_id) DO UPDATE SET score = excluded.score, updated_at = excluded.updated_at`
-    ).run(id, studentId, reviewId, dimensionId, score, now);
+      `INSERT INTO dimension_scores (id, student_id, review_id, dimension_id, reviewer_id, score, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(student_id, review_id, dimension_id, reviewer_id) DO UPDATE SET score = excluded.score, updated_at = excluded.updated_at`
+    ).run(id, studentId, reviewId, dimensionId, reviewerId, score, now);
   }
   const scores = getDimensionScores(studentId, reviewId);
   let delta: number | null = null;
   if (scores.length > 0) {
     const dimensions = listDimensions();
-    const scoredIds = new Set(scores.map((s) => s.dimension_id));
-    const relevant = dimensions.filter((d) => scoredIds.has(d.id));
+    const avgByDimension = new Map<string, number>();
+    for (const d of dimensions) {
+      const dimScores = scores.filter((s) => s.dimension_id === d.id);
+      if (dimScores.length > 0) {
+        avgByDimension.set(d.id, dimScores.reduce((sum, s) => sum + s.score, 0) / dimScores.length);
+      }
+    }
+    const relevant = dimensions.filter((d) => avgByDimension.has(d.id));
     const totalWeight = relevant.reduce((sum, d) => sum + d.weightPercent, 0) || 1;
-    const weightedAvg = relevant.reduce((sum, d) => {
-      const s = scores.find((sc) => sc.dimension_id === d.id)!;
-      return sum + (d.weightPercent / totalWeight) * s.score;
-    }, 0);
+    const weightedAvg = relevant.reduce(
+      (sum, d) => sum + (d.weightPercent / totalWeight) * avgByDimension.get(d.id)!,
+      0
+    );
     delta = Math.round((weightedAvg - 3) * 100) / 100;
   }
   const existingNotes =
@@ -371,7 +473,12 @@ export function getAskedQuestions(studentId: string, reviewId: string): AskedQue
     .all(studentId, reviewId) as AskedQuestionRow[];
 }
 
-export function addAskedQuestion(studentId: string, reviewId: string, text: string): AskedQuestionRow {
+export function addAskedQuestion(
+  studentId: string,
+  reviewId: string,
+  reviewerId: string | null,
+  text: string
+): AskedQuestionRow {
   const db = getDb();
   const maxOrder =
     (
@@ -383,10 +490,20 @@ export function addAskedQuestion(studentId: string, reviewId: string, text: stri
   const now = new Date().toISOString();
   const order = maxOrder + 1;
   db.prepare(
-    `INSERT INTO asked_questions (id, student_id, review_id, text, rating, order_index, created_at, updated_at)
-     VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`
-  ).run(id, studentId, reviewId, text, order, now, now);
-  return { id, student_id: studentId, review_id: reviewId, text, rating: null, order_index: order, created_at: now, updated_at: now };
+    `INSERT INTO asked_questions (id, student_id, review_id, reviewer_id, text, rating, order_index, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)`
+  ).run(id, studentId, reviewId, reviewerId, text, order, now, now);
+  return {
+    id,
+    student_id: studentId,
+    review_id: reviewId,
+    reviewer_id: reviewerId,
+    text,
+    rating: null,
+    order_index: order,
+    created_at: now,
+    updated_at: now,
+  };
 }
 
 export function updateAskedQuestion(id: string, patch: { text?: string; rating?: GradeBand | null }): AskedQuestionRow {
