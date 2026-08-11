@@ -9,12 +9,13 @@ import type {
   TeamScoreRow,
   IndividualScoreRow,
   ReviewSessionRow,
+  DimensionDef,
 } from '../../core/models/types';
 import { ButtonComponent } from '../../ui/button.component';
 import { CardComponent, CardContentComponent, CardHeaderComponent, CardTitleComponent } from '../../ui/card.component';
 import { BadgeComponent } from '../../ui/badge.component';
 import { ProgressComponent } from '../../ui/progress.component';
-import { QuestionSessionComponent } from '../../shared/question-session.component';
+import { IndividualAssessmentComponent } from '../../shared/individual-assessment.component';
 
 type ReviewWithCriteria = ReviewDef & { criteria: CriterionDef[] };
 
@@ -32,7 +33,7 @@ const GRACE_OPTIONS = [-1, -0.5, 0, 0.5, 1];
     CardContentComponent,
     BadgeComponent,
     ProgressComponent,
-    QuestionSessionComponent,
+    IndividualAssessmentComponent,
   ],
   templateUrl: './review.component.html',
 })
@@ -53,11 +54,23 @@ export class ReviewComponent {
   individualScores = signal<Record<string, IndividualScoreRow>>({});
   session = signal<ReviewSessionRow | null>(null);
   now = signal(Date.now());
+  dimensions = signal<DimensionDef[]>([]);
 
   private autoAdvanced = false;
 
   team = computed(() => this.classData()?.teams.find((t) => t.id === this.teamId()) ?? null);
   review = computed(() => this.reviews().find((r) => r.id === this.reviewId()) ?? null);
+
+  /** Team scores for the current team+review, keyed by criterion id - the
+   * shape app-individual-assessment needs for its strengths/weaknesses panel. */
+  teamScoresByCriterion = computed(() => {
+    const review = this.review();
+    if (!review) return {};
+    const scores = this.teamScores();
+    return Object.fromEntries(
+      review.criteria.map((c) => [c.id, scores[`${this.teamId()}:${this.reviewId()}:${c.id}`]])
+    );
+  });
 
   teamAvg = computed(() => {
     const team = this.team();
@@ -80,6 +93,8 @@ export class ReviewComponent {
   });
 
   constructor() {
+    this.api.apiGet<DimensionDef[]>('/api/dimensions').then((d) => this.dimensions.set(d ?? []));
+
     effect(() => {
       const classId = this.classId();
       const reviewId = this.reviewId();

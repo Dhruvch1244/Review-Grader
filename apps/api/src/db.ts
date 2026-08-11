@@ -4,7 +4,7 @@ import fs from "fs";
 import os from "os";
 import { randomUUID } from "crypto";
 import { REVIEWS, CRITERIA } from "./rubric-seed";
-import { QUESTION_BANK } from "./question-bank";
+import { DEFAULT_DIMENSIONS } from "./dimensions-seed";
 import { generateIndianNames } from "./indian-names";
 
 const DEFAULT_CLASS_COUNT = 6;
@@ -79,30 +79,33 @@ CREATE TABLE IF NOT EXISTS individual_scores (
   UNIQUE(student_id, review_id)
 );
 
-CREATE TABLE IF NOT EXISTS questions (
+CREATE TABLE IF NOT EXISTS dimensions (
   id TEXT PRIMARY KEY,
-  criterion_id TEXT NOT NULL,
-  text TEXT NOT NULL,
+  key TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL,
+  weight_percent REAL NOT NULL,
   order_index INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS question_sessions (
+CREATE TABLE IF NOT EXISTS dimension_scores (
   id TEXT PRIMARY KEY,
   student_id TEXT NOT NULL,
   review_id TEXT NOT NULL,
-  criterion_ids TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  UNIQUE(student_id, review_id)
+  dimension_id TEXT NOT NULL,
+  score INTEGER NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(student_id, review_id, dimension_id)
 );
 
-CREATE TABLE IF NOT EXISTS question_ratings (
+CREATE TABLE IF NOT EXISTS asked_questions (
   id TEXT PRIMARY KEY,
   student_id TEXT NOT NULL,
   review_id TEXT NOT NULL,
-  criterion_id TEXT NOT NULL,
-  rating TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  UNIQUE(student_id, review_id, criterion_id)
+  text TEXT NOT NULL,
+  rating TEXT,
+  order_index INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS review_sessions (
@@ -117,13 +120,6 @@ CREATE TABLE IF NOT EXISTS review_sessions (
   UNIQUE(team_id, review_id)
 );
 `;
-
-function ensureColumn(db: Database.Database, table: string, column: string, ddl: string) {
-  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-  if (!cols.some((c) => c.name === column)) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
-  }
-}
 
 function seedRubric(db: Database.Database) {
   const count = (db.prepare("SELECT COUNT(*) as c FROM reviews").get() as { c: number }).c;
@@ -141,19 +137,15 @@ function seedRubric(db: Database.Database) {
   tx();
 }
 
-function seedQuestionBank(db: Database.Database) {
-  const count = (db.prepare("SELECT COUNT(*) as c FROM questions").get() as { c: number }).c;
+function seedDimensions(db: Database.Database) {
+  const count = (db.prepare("SELECT COUNT(*) as c FROM dimensions").get() as { c: number }).c;
   if (count > 0) return;
-  const insertQuestion = db.prepare(
-    "INSERT INTO questions (id, criterion_id, text, order_index) VALUES (?, ?, ?, ?)"
+  const insertDimension = db.prepare(
+    "INSERT INTO dimensions (id, key, label, weight_percent, order_index) VALUES (?, ?, ?, ?, ?)"
   );
-  const setGuidance = db.prepare("UPDATE criteria SET guidance = ? WHERE id = ?");
   const tx = db.transaction(() => {
-    for (const [criterionId, entry] of Object.entries(QUESTION_BANK)) {
-      entry.questions.forEach((q, i) => {
-        insertQuestion.run(randomUUID(), criterionId, q, i);
-      });
-      setGuidance.run(entry.guidance, criterionId);
+    for (const d of DEFAULT_DIMENSIONS) {
+      insertDimension.run(randomUUID(), d.key, d.label, d.weightPercent, d.order);
     }
   });
   tx();
@@ -197,9 +189,8 @@ function createConnection() {
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
   db.exec(SCHEMA);
-  ensureColumn(db, "criteria", "guidance", "guidance TEXT");
   seedRubric(db);
-  seedQuestionBank(db);
+  seedDimensions(db);
   seedDefaultClasses(db);
   return db;
 }

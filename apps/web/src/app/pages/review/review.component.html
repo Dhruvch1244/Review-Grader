@@ -72,8 +72,8 @@
           <div>
             <h2 class="text-sm font-semibold">Individual Q&amp;A - everyone at once</h2>
             <p class="text-xs text-muted-foreground">
-              Each person got a different 5-question set weighted toward the team's weak spots. Rate as you go
-              through each person, then finish whenever you're ready.
+              Log the questions you actually ask each person, grade them on the 4 dimensions below, then finish
+              whenever you're ready.
             </p>
           </div>
           <button appButton (click)="finishQA()">Finish Q&amp;A</button>
@@ -86,11 +86,13 @@
                 <p class="text-xs text-muted-foreground">Final so far: <strong>{{ finalScoreFor(s.id) ?? '—' }}</strong></p>
               </app-card-header>
               <app-card-content>
-                <app-question-session
+                <app-individual-assessment
                   [studentId]="s.id"
                   [teamId]="teamId()"
                   [reviewId]="reviewId()"
-                  (appendNotes)="$event"
+                  [criteria]="review()!.criteria"
+                  [teamScores]="teamScoresByCriterion()"
+                  [dimensions]="dimensions()"
                   (deltaChange)="setDeltaLocal(s.id, $event)"
                 />
               </app-card-content>

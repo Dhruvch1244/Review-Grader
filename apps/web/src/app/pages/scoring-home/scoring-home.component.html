@@ -1,0 +1,33 @@
+<div class="space-y-6">
+  <div>
+    <h1 class="text-2xl font-semibold tracking-tight">Scoring</h1>
+    <p class="text-sm text-muted-foreground mt-1">Pick a class to score or view its stats.</p>
+  </div>
+
+  <div class="space-y-3">
+    @for (c of classes(); track c.id) {
+      <app-card>
+        <app-card-content class="flex items-center justify-between py-4">
+          <div>
+            <p class="font-medium">{{ c.name }}</p>
+            <p class="text-xs text-muted-foreground">
+              {{ c.reviewer_name ? c.reviewer_name + ' · ' : '' }}{{ c.headcount }} students
+            </p>
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <a [routerLink]="'/score/' + c.id">
+              <button appButton variant="outline" size="sm">
+                <svg lucideClipboardList class="size-3.5"></svg> Score
+              </button>
+            </a>
+            <a [routerLink]="'/stats/' + c.id">
+              <button appButton variant="outline" size="icon" class="size-8" title="Stats">
+                <svg lucideBarChart3 class="size-4"></svg>
+              </button>
+            </a>
+          </div>
+        </app-card-content>
+      </app-card>
+    }
+  </div>
+</div>

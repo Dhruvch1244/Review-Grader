@@ -11,10 +11,10 @@ import type {
   ReviewDef,
   CriterionDef,
   Category,
-  QuestionVariant,
-  QuestionSessionRow,
-  QuestionRatingRow,
-  QuestionRating,
+  DimensionDef,
+  DimensionScoreRow,
+  AskedQuestionRow,
+  GradeBand,
   ReviewSessionRow,
 } from "./types";
 
@@ -122,8 +122,8 @@ export function deleteTeam(teamId: string): void {
     const students = db.prepare("SELECT id FROM students WHERE team_id = ?").all(teamId) as { id: string }[];
     for (const s of students) {
       db.prepare("DELETE FROM individual_scores WHERE student_id = ?").run(s.id);
-      db.prepare("DELETE FROM question_ratings WHERE student_id = ?").run(s.id);
-      db.prepare("DELETE FROM question_sessions WHERE student_id = ?").run(s.id);
+      db.prepare("DELETE FROM dimension_scores WHERE student_id = ?").run(s.id);
+      db.prepare("DELETE FROM asked_questions WHERE student_id = ?").run(s.id);
     }
     db.prepare("DELETE FROM students WHERE team_id = ?").run(teamId);
     db.prepare("DELETE FROM team_scores WHERE team_id = ?").run(teamId);
@@ -155,8 +155,8 @@ export function deleteStudent(studentId: string): void {
   const db = getDb();
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM individual_scores WHERE student_id = ?").run(studentId);
-    db.prepare("DELETE FROM question_ratings WHERE student_id = ?").run(studentId);
-    db.prepare("DELETE FROM question_sessions WHERE student_id = ?").run(studentId);
+    db.prepare("DELETE FROM dimension_scores WHERE student_id = ?").run(studentId);
+    db.prepare("DELETE FROM asked_questions WHERE student_id = ?").run(studentId);
     db.prepare("DELETE FROM students WHERE id = ?").run(studentId);
   });
   tx();
@@ -178,7 +178,6 @@ export function listReviews(): (ReviewDef & { criteria: CriterionDef[] })[] {
     category: Category;
     text: string;
     order_index: number;
-    guidance: string | null;
   }[];
   return reviews.map((r) => ({
     id: r.id,
@@ -193,7 +192,6 @@ export function listReviews(): (ReviewDef & { criteria: CriterionDef[] })[] {
         category: c.category,
         text: c.text,
         order: c.order_index,
-        guidance: c.guidance,
       })),
   }));
 }
@@ -278,160 +276,81 @@ export function getScoresForClass(classId: string): {
   return { teamScores, individualScores };
 }
 
-// ---- Question bank (editable) ----
+// ---- Dimensions (editable weights) + per-student dimension scores ----
 
-export interface QuestionBankCriterion {
-  id: string;
-  reviewId: string;
-  reviewLabel: string;
-  category: Category;
-  text: string;
-  guidance: string | null;
-  questions: QuestionVariant[];
-}
-
-export function getQuestionBank(): QuestionBankCriterion[] {
+export function listDimensions(): DimensionDef[] {
   const db = getDb();
-  const criteria = db
-    .prepare(
-      `SELECT c.id, c.review_id, c.category, c.text, c.order_index, c.guidance, r.label as review_label, r.number as review_number
-       FROM criteria c JOIN reviews r ON c.review_id = r.id
-       ORDER BY r.number, c.order_index`
-    )
-    .all() as {
+  const rows = db.prepare("SELECT * FROM dimensions ORDER BY order_index").all() as {
     id: string;
-    review_id: string;
-    category: Category;
-    text: string;
-    guidance: string | null;
-    review_label: string;
+    key: string;
+    label: string;
+    weight_percent: number;
+    order_index: number;
   }[];
-  const questions = db
-    .prepare("SELECT * FROM questions ORDER BY criterion_id, order_index")
-    .all() as { id: string; criterion_id: string; text: string; order_index: number }[];
-  return criteria.map((c) => ({
-    id: c.id,
-    reviewId: c.review_id,
-    reviewLabel: c.review_label,
-    category: c.category,
-    text: c.text,
-    guidance: c.guidance,
-    questions: questions
-      .filter((q) => q.criterion_id === c.id)
-      .map((q) => ({ id: q.id, criterionId: q.criterion_id, text: q.text, order: q.order_index })),
-  }));
+  return rows.map((r) => ({ id: r.id, key: r.key, label: r.label, weightPercent: r.weight_percent, order: r.order_index }));
 }
 
-export function addQuestionVariant(criterionId: string, text: string): QuestionVariant {
-  const db = getDb();
-  const maxOrder =
-    (db.prepare("SELECT MAX(order_index) as m FROM questions WHERE criterion_id = ?").get(criterionId) as {
-      m: number | null;
-    }).m ?? -1;
-  const id = randomUUID();
-  const order = maxOrder + 1;
-  db.prepare("INSERT INTO questions (id, criterion_id, text, order_index) VALUES (?, ?, ?, ?)").run(
-    id,
-    criterionId,
-    text,
-    order
-  );
-  return { id, criterionId, text, order };
-}
-
-export function updateQuestionVariant(id: string, text: string): void {
-  getDb().prepare("UPDATE questions SET text = ? WHERE id = ?").run(text, id);
-}
-
-export function deleteQuestionVariant(id: string): void {
-  getDb().prepare("DELETE FROM questions WHERE id = ?").run(id);
-}
-
-export function updateCriterionGuidance(criterionId: string, guidance: string): void {
-  getDb().prepare("UPDATE criteria SET guidance = ? WHERE id = ?").run(guidance, criterionId);
-}
-
-// ---- Question sessions (per-student generated Q&A set) + ratings ----
-
-export function getTeammateUsedCriteria(teamId: string, reviewId: string, excludeStudentId: string): Set<string> {
-  const db = getDb();
-  const rows = db
-    .prepare(
-      `SELECT qs.criterion_ids FROM question_sessions qs
-       JOIN students s ON qs.student_id = s.id
-       WHERE s.team_id = ? AND qs.review_id = ? AND qs.student_id != ?`
-    )
-    .all(teamId, reviewId, excludeStudentId) as { criterion_ids: string }[];
-  const used = new Set<string>();
-  for (const row of rows) {
-    for (const id of JSON.parse(row.criterion_ids) as string[]) used.add(id);
+/** Throws if the new weights don't sum to ~100 (within floating-point slop). */
+export function updateDimensionWeights(weights: { id: string; weightPercent: number }[]): DimensionDef[] {
+  const total = weights.reduce((sum, w) => sum + w.weightPercent, 0);
+  if (Math.abs(total - 100) > 0.5) {
+    throw new Error(`Dimension weights must sum to 100 (got ${total})`);
   }
-  return used;
-}
-
-export function getQuestionSession(studentId: string, reviewId: string): QuestionSessionRow | null {
   const db = getDb();
-  const row = db
-    .prepare("SELECT * FROM question_sessions WHERE student_id = ? AND review_id = ?")
-    .get(studentId, reviewId) as { id: string; student_id: string; review_id: string; criterion_ids: string; created_at: string } | undefined;
-  if (!row) return null;
-  return { ...row, criterion_ids: JSON.parse(row.criterion_ids) };
+  const update = db.prepare("UPDATE dimensions SET weight_percent = ? WHERE id = ?");
+  const tx = db.transaction(() => {
+    for (const w of weights) update.run(w.weightPercent, w.id);
+  });
+  tx();
+  return listDimensions();
 }
 
-export function saveQuestionSession(
-  studentId: string,
-  reviewId: string,
-  criterionIds: string[]
-): QuestionSessionRow {
-  const db = getDb();
-  const id = `${studentId}:${reviewId}`;
-  const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO question_sessions (id, student_id, review_id, criterion_ids, created_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(student_id, review_id) DO UPDATE SET criterion_ids = excluded.criterion_ids, created_at = excluded.created_at`
-  ).run(id, studentId, reviewId, JSON.stringify(criterionIds), now);
-  return { id, student_id: studentId, review_id: reviewId, criterion_ids: criterionIds, created_at: now };
-}
-
-export function getQuestionRatings(studentId: string, reviewId: string): QuestionRatingRow[] {
+export function getDimensionScores(studentId: string, reviewId: string): DimensionScoreRow[] {
   return getDb()
-    .prepare("SELECT * FROM question_ratings WHERE student_id = ? AND review_id = ?")
-    .all(studentId, reviewId) as QuestionRatingRow[];
+    .prepare("SELECT * FROM dimension_scores WHERE student_id = ? AND review_id = ?")
+    .all(studentId, reviewId) as DimensionScoreRow[];
 }
-
-const RATING_VALUE: Record<QuestionRating, number> = { answered: 2, middle: 0, unanswered: -2 };
 
 /**
- * Ratings are optional per question - only the ones the reviewer actually
- * set count toward the average, which becomes that student's delta. Set
- * rating to null to clear one (excludes it from the average again).
+ * Dimensions are graded independently and don't all need a score at once -
+ * the delta is the weighted average of whatever's been graded so far, with
+ * those dimensions' weights re-normalized to sum to 100% among themselves,
+ * centered on 3 ("meets") so it nudges the team baseline up or down the
+ * same way the old question-rating delta did. Set score to null to clear a
+ * dimension's grade (excludes it from the average again).
  */
-export function upsertQuestionRating(
+export function upsertDimensionScore(
   studentId: string,
   reviewId: string,
-  criterionId: string,
-  rating: QuestionRating | null
-): { delta: number | null; ratings: QuestionRatingRow[] } {
+  dimensionId: string,
+  score: number | null
+): { delta: number | null; scores: DimensionScoreRow[] } {
   const db = getDb();
   const now = new Date().toISOString();
-  if (rating === null) {
+  if (score === null) {
     db.prepare(
-      "DELETE FROM question_ratings WHERE student_id = ? AND review_id = ? AND criterion_id = ?"
-    ).run(studentId, reviewId, criterionId);
+      "DELETE FROM dimension_scores WHERE student_id = ? AND review_id = ? AND dimension_id = ?"
+    ).run(studentId, reviewId, dimensionId);
   } else {
-    const id = `${studentId}:${reviewId}:${criterionId}`;
+    const id = `${studentId}:${reviewId}:${dimensionId}`;
     db.prepare(
-      `INSERT INTO question_ratings (id, student_id, review_id, criterion_id, rating, updated_at)
+      `INSERT INTO dimension_scores (id, student_id, review_id, dimension_id, score, updated_at)
        VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(student_id, review_id, criterion_id) DO UPDATE SET rating = excluded.rating, updated_at = excluded.updated_at`
-    ).run(id, studentId, reviewId, criterionId, rating, now);
+       ON CONFLICT(student_id, review_id, dimension_id) DO UPDATE SET score = excluded.score, updated_at = excluded.updated_at`
+    ).run(id, studentId, reviewId, dimensionId, score, now);
   }
-  const ratings = getQuestionRatings(studentId, reviewId);
+  const scores = getDimensionScores(studentId, reviewId);
   let delta: number | null = null;
-  if (ratings.length > 0) {
-    const sum = ratings.reduce((acc, r) => acc + RATING_VALUE[r.rating], 0);
-    delta = Math.round((sum / ratings.length) * 100) / 100;
+  if (scores.length > 0) {
+    const dimensions = listDimensions();
+    const scoredIds = new Set(scores.map((s) => s.dimension_id));
+    const relevant = dimensions.filter((d) => scoredIds.has(d.id));
+    const totalWeight = relevant.reduce((sum, d) => sum + d.weightPercent, 0) || 1;
+    const weightedAvg = relevant.reduce((sum, d) => {
+      const s = scores.find((sc) => sc.dimension_id === d.id)!;
+      return sum + (d.weightPercent / totalWeight) * s.score;
+    }, 0);
+    delta = Math.round((weightedAvg - 3) * 100) / 100;
   }
   const existingNotes =
     (
@@ -441,7 +360,49 @@ export function upsertQuestionRating(
       ) as { notes: string | null } | undefined
     )?.notes ?? null;
   upsertIndividualScore({ studentId, reviewId, delta, notes: existingNotes });
-  return { delta, ratings };
+  return { delta, scores };
+}
+
+// ---- Asked questions (free-form log of what was actually asked) ----
+
+export function getAskedQuestions(studentId: string, reviewId: string): AskedQuestionRow[] {
+  return getDb()
+    .prepare("SELECT * FROM asked_questions WHERE student_id = ? AND review_id = ? ORDER BY order_index")
+    .all(studentId, reviewId) as AskedQuestionRow[];
+}
+
+export function addAskedQuestion(studentId: string, reviewId: string, text: string): AskedQuestionRow {
+  const db = getDb();
+  const maxOrder =
+    (
+      db
+        .prepare("SELECT MAX(order_index) as m FROM asked_questions WHERE student_id = ? AND review_id = ?")
+        .get(studentId, reviewId) as { m: number | null }
+    ).m ?? -1;
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  const order = maxOrder + 1;
+  db.prepare(
+    `INSERT INTO asked_questions (id, student_id, review_id, text, rating, order_index, created_at, updated_at)
+     VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`
+  ).run(id, studentId, reviewId, text, order, now, now);
+  return { id, student_id: studentId, review_id: reviewId, text, rating: null, order_index: order, created_at: now, updated_at: now };
+}
+
+export function updateAskedQuestion(id: string, patch: { text?: string; rating?: GradeBand | null }): AskedQuestionRow {
+  const db = getDb();
+  const now = new Date().toISOString();
+  if (patch.text !== undefined) {
+    db.prepare("UPDATE asked_questions SET text = ?, updated_at = ? WHERE id = ?").run(patch.text, now, id);
+  }
+  if (patch.rating !== undefined) {
+    db.prepare("UPDATE asked_questions SET rating = ?, updated_at = ? WHERE id = ?").run(patch.rating, now, id);
+  }
+  return db.prepare("SELECT * FROM asked_questions WHERE id = ?").get(id) as AskedQuestionRow;
+}
+
+export function deleteAskedQuestion(id: string): void {
+  getDb().prepare("DELETE FROM asked_questions WHERE id = ?").run(id);
 }
 
 // ---- Live review sessions (presentation timer -> individual Q&A -> final) ----
@@ -492,8 +453,9 @@ export function updateReviewSession(
 
 // ---- Reset (scoring data only - never touches classes/teams/students/rubric) ----
 
-/** Clears one team's scores, question sessions/ratings, and live-session
- * state so it can be graded again from scratch. Roster is untouched. */
+/** Clears one team's scores, dimension scores/asked questions, and
+ * live-session state so it can be graded again from scratch. Roster is
+ * untouched. */
 export function resetTeamScoring(teamId: string): void {
   const db = getDb();
   const tx = db.transaction(() => {
@@ -502,22 +464,22 @@ export function resetTeamScoring(teamId: string): void {
     db.prepare("DELETE FROM review_sessions WHERE team_id = ?").run(teamId);
     for (const s of students) {
       db.prepare("DELETE FROM individual_scores WHERE student_id = ?").run(s.id);
-      db.prepare("DELETE FROM question_ratings WHERE student_id = ?").run(s.id);
-      db.prepare("DELETE FROM question_sessions WHERE student_id = ?").run(s.id);
+      db.prepare("DELETE FROM dimension_scores WHERE student_id = ?").run(s.id);
+      db.prepare("DELETE FROM asked_questions WHERE student_id = ?").run(s.id);
     }
   });
   tx();
 }
 
 /** Clears ALL scoring data across every class - classes, teams, students,
- * the rubric, and the question bank are all left exactly as they are. */
+ * the rubric, and the dimension weights are all left exactly as they are. */
 export function resetAllScoring(): void {
   const db = getDb();
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM team_scores").run();
     db.prepare("DELETE FROM individual_scores").run();
-    db.prepare("DELETE FROM question_ratings").run();
-    db.prepare("DELETE FROM question_sessions").run();
+    db.prepare("DELETE FROM dimension_scores").run();
+    db.prepare("DELETE FROM asked_questions").run();
     db.prepare("DELETE FROM review_sessions").run();
   });
   tx();

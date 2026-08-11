@@ -1,14 +1,25 @@
 import { Routes } from '@angular/router';
+import { adminGuard } from './core/guards/admin.guard';
 
 export const routes: Routes = [
-  { path: '', redirectTo: '/setup', pathMatch: 'full' },
+  {
+    path: '',
+    pathMatch: 'full',
+    loadComponent: () => import('./pages/home-redirect/home-redirect.component').then((m) => m.HomeRedirectComponent),
+  },
   {
     path: 'setup',
+    canActivate: [adminGuard],
     loadComponent: () => import('./pages/setup/setup.component').then((m) => m.SetupComponent),
   },
   {
-    path: 'questions',
-    loadComponent: () => import('./pages/questions/questions.component').then((m) => m.QuestionsComponent),
+    path: 'scoring',
+    loadComponent: () => import('./pages/scoring-home/scoring-home.component').then((m) => m.ScoringHomeComponent),
+  },
+  {
+    path: 'dimensions',
+    canActivate: [adminGuard],
+    loadComponent: () => import('./pages/dimensions/dimensions.component').then((m) => m.DimensionsComponent),
   },
   {
     path: 'normalize',
@@ -16,6 +27,7 @@ export const routes: Routes = [
   },
   {
     path: 'merge',
+    canActivate: [adminGuard],
     loadComponent: () => import('./pages/merge/merge.component').then((m) => m.MergeComponent),
   },
   {

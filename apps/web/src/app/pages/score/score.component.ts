@@ -9,11 +9,12 @@ import type {
   CriterionDef,
   TeamScoreRow,
   IndividualScoreRow,
+  DimensionDef,
 } from '../../core/models/types';
 import { ButtonComponent } from '../../ui/button.component';
 import { CardComponent, CardContentComponent, CardHeaderComponent, CardTitleComponent } from '../../ui/card.component';
 import { BadgeComponent } from '../../ui/badge.component';
-import { QuestionSessionComponent } from '../../shared/question-session.component';
+import { IndividualAssessmentComponent } from '../../shared/individual-assessment.component';
 
 type ReviewWithCriteria = ReviewDef & { criteria: CriterionDef[] };
 
@@ -28,7 +29,7 @@ type ReviewWithCriteria = ReviewDef & { criteria: CriterionDef[] };
     CardHeaderComponent,
     CardTitleComponent,
     BadgeComponent,
-    QuestionSessionComponent,
+    IndividualAssessmentComponent,
     LucidePlayCircle,
     LucideRotateCcw,
   ],
@@ -47,6 +48,7 @@ export class ScoreComponent {
   reviewId = signal<string>('r1');
   teamId = signal<string | null>(null);
   resetNonce = signal(0);
+  dimensions = signal<DimensionDef[]>([]);
 
   readonly scoreOptions = [1, 2, 3, 4, 5];
   readonly deltaOptions = [-2, -1, 0, 1, 2];
@@ -66,7 +68,21 @@ export class ScoreComponent {
     return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
   });
 
+  /** Team scores for the current team+review, keyed by criterion id - the
+   * shape app-individual-assessment needs for its strengths/weaknesses panel. */
+  teamScoresByCriterion = computed(() => {
+    const team = this.team();
+    const review = this.review();
+    if (!team || !review) return {};
+    const scores = this.teamScores();
+    return Object.fromEntries(
+      review.criteria.map((c) => [c.id, scores[`${team.id}:${review.id}:${c.id}`]])
+    );
+  });
+
   constructor() {
+    this.api.apiGet<DimensionDef[]>('/api/dimensions').then((d) => this.dimensions.set(d ?? []));
+
     effect(() => {
       const classId = this.classId();
       this.api.apiGet<ClassData>(`/api/classes/${classId}`).then((data) => {
@@ -233,15 +249,6 @@ export class ScoreComponent {
       { studentId, reviewId: review.id, delta: existingDelta, notes },
       `ind-score-${key}`
     );
-  }
-
-  appendIndividualNotes(studentId: string, notesEl: HTMLTextAreaElement, text: string) {
-    const review = this.review();
-    if (!review) return;
-    const existing = notesEl.value || this.individualScores()[`${studentId}:${review.id}`]?.notes || '';
-    const next = existing ? `${existing}\n${text}` : text;
-    notesEl.value = next;
-    this.setIndividualNotes(studentId, next);
   }
 
   async resetTeam() {

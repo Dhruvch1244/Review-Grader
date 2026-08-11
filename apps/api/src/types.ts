@@ -13,16 +13,44 @@ export interface CriterionDef {
   category: Category;
   text: string;
   order: number;
-  guidance?: string | null;
 }
 
-export type QuestionRating = "answered" | "middle" | "unanswered";
+/** The 4-band grade used for both dimension scores and asked-question ratings. */
+export type GradeBand = "below" | "partial" | "meets" | "exceeds";
+export const GRADE_BAND_VALUE: Record<GradeBand, number> = { below: 1, partial: 3, meets: 4, exceeds: 5 };
+export const GRADE_BAND_LABEL: Record<GradeBand, string> = {
+  below: "Below",
+  partial: "Partial",
+  meets: "Meets",
+  exceeds: "Exceeds",
+};
 
-export interface QuestionVariant {
+export interface DimensionDef {
   id: string;
-  criterionId: string;
-  text: string;
+  key: string;
+  label: string;
+  weightPercent: number;
   order: number;
+}
+
+export interface DimensionScoreRow {
+  id: string;
+  student_id: string;
+  review_id: string;
+  dimension_id: string;
+  score: number;
+  updated_at: string;
+}
+
+export interface AskedQuestionRow {
+  id: string;
+  student_id: string;
+  review_id: string;
+  text: string;
+  rating: GradeBand | null;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ClassRow {
@@ -65,23 +93,6 @@ export interface IndividualScoreRow {
   notes: string | null;
   grace?: number | null;
   updated_at: string;
-}
-
-export interface QuestionRatingRow {
-  id: string;
-  student_id: string;
-  review_id: string;
-  criterion_id: string;
-  rating: QuestionRating;
-  updated_at: string;
-}
-
-export interface QuestionSessionRow {
-  id: string;
-  student_id: string;
-  review_id: string;
-  criterion_ids: string[];
-  created_at: string;
 }
 
 export type ReviewSessionPhase = "idle" | "presentation" | "individual" | "final" | "done";
