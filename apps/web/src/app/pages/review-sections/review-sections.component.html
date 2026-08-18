@@ -42,8 +42,49 @@
                   class="h-8 text-sm w-full text-right"
                 />
               </div>
+              <button
+                appButton
+                variant="ghost"
+                size="icon"
+                class="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                (click)="removeSection(section.id, section.label)"
+                title="Remove section"
+              >
+                ×
+              </button>
             </div>
           }
+
+          <div class="flex items-center gap-2 pt-2 border-t">
+            <select appSelect size="sm" class="w-28 shrink-0 text-[10px]" [value]="newCategory(review.id)" (change)="setNewCategory(review.id, $any($event.target).value)">
+              <option value="technical">Technical</option>
+              <option value="non_technical">Non-Tech</option>
+            </select>
+            <div class="flex-1 min-w-0">
+              <input
+                appInput
+                [value]="newLabel(review.id)"
+                (input)="setNewLabel(review.id, $any($event.target).value)"
+                (keydown.enter)="addSection(review.id)"
+                placeholder="+ Add section…"
+                class="h-8 text-sm w-full"
+              />
+            </div>
+            <div class="w-20 shrink-0">
+              <input
+                appInput
+                type="number"
+                min="0"
+                step="0.5"
+                [value]="newMarks(review.id)"
+                (input)="setNewMarks(review.id, $any($event.target).value)"
+                (keydown.enter)="addSection(review.id)"
+                placeholder="marks"
+                class="h-8 text-sm w-full text-right"
+              />
+            </div>
+            <button appButton size="sm" class="shrink-0" (click)="addSection(review.id)">Add</button>
+          </div>
         </app-card-content>
       </app-card>
     }

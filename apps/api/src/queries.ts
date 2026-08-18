@@ -291,6 +291,46 @@ export function updateReviewSections(patch: { id: string; label: string; maxMark
   tx();
 }
 
+/** Admin adds a new section to a review (e.g. a newly-added feature) -
+ * requirements change, so the fixed seed structure isn't the ceiling. */
+export function addReviewSection(
+  reviewId: string,
+  label: string,
+  category: SectionCategory,
+  maxMarks: number
+): ReviewSectionDef {
+  const db = getDb();
+  const maxOrder =
+    (db.prepare("SELECT MAX(order_index) as m FROM review_sections WHERE review_id = ?").get(reviewId) as {
+      m: number | null;
+    }).m ?? -1;
+  const id = randomUUID();
+  const order_index = maxOrder + 1;
+  const key = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+  db.prepare(
+    "INSERT INTO review_sections (id, review_id, key, label, category, max_marks, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run(id, reviewId, key, label, category, maxMarks, order_index);
+  return { id, reviewId, key, label, category, maxMarks, order: order_index };
+}
+
+/** Admin removes a section (and its subtopics/ratings) - e.g. a feature
+ * that got dropped from scope. */
+export function deleteReviewSection(id: string): void {
+  const db = getDb();
+  const tx = db.transaction(() => {
+    const subtopics = db.prepare("SELECT id FROM subtopics WHERE section_id = ?").all(id) as { id: string }[];
+    for (const s of subtopics) {
+      db.prepare("DELETE FROM subtopic_scores WHERE subtopic_id = ?").run(s.id);
+    }
+    db.prepare("DELETE FROM subtopics WHERE section_id = ?").run(id);
+    db.prepare("DELETE FROM review_sections WHERE id = ?").run(id);
+  });
+  tx();
+}
+
 export function addSubtopic(sectionId: string, label: string): SubtopicDef {
   const db = getDb();
   const maxOrder =

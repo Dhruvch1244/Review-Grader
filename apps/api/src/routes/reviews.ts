@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listReviews, updateReviewSections } from "../queries";
+import { listReviews, updateReviewSections, addReviewSection, deleteReviewSection } from "../queries";
 
 export const reviewsRouter = Router();
 
@@ -20,5 +20,22 @@ reviewsRouter.put("/sections", (req, res) => {
     }
   }
   updateReviewSections(sections);
+  res.json(listReviews());
+});
+
+/** Admin adds a new section to a review. Body: { reviewId, label,
+ * category, maxMarks }. */
+reviewsRouter.post("/sections", (req, res) => {
+  const body = req.body ?? {};
+  const label = String(body.label ?? "").trim();
+  if (!body.reviewId || !label || !["technical", "non_technical"].includes(body.category) || typeof body.maxMarks !== "number") {
+    return res.status(400).json({ error: "reviewId, label, category ('technical'|'non_technical'), maxMarks are required" });
+  }
+  addReviewSection(body.reviewId, label, body.category, body.maxMarks);
+  res.status(201).json(listReviews());
+});
+
+reviewsRouter.delete("/sections/:id", (req, res) => {
+  deleteReviewSection(req.params.id);
   res.json(listReviews());
 });
