@@ -64,34 +64,45 @@ export class ReviewComponent {
   team = computed(() => this.classData()?.teams.find((t) => t.id === this.teamId()) ?? null);
   review = computed(() => this.reviews().find((r) => r.id === this.reviewId()) ?? null);
 
-  reviewTotal = computed(() => {
+  /** One row per student on the team: team-scope sections contribute the
+   * same value to everyone, individual-scope sections (e.g. Presentation)
+   * contribute that student's own score - mirrors computeReviewTotal
+   * server-side. */
+  reviewTotals = computed(() => {
     const scores = this.currentSectionScores();
     const review = this.review();
-    if (!review) return null;
-    let technicalEarned = 0;
-    let technicalMax = 0;
-    let nonTechnicalEarned = 0;
-    let nonTechnicalMax = 0;
-    for (const ss of scores) {
-      if (ss.score === null) continue;
-      const section = review.sections.find((s) => s.id === ss.sectionId);
-      if (!section) continue;
-      if (section.category === 'technical') {
-        technicalEarned += ss.score;
-        technicalMax += ss.maxMarks;
-      } else {
-        nonTechnicalEarned += ss.score;
-        nonTechnicalMax += ss.maxMarks;
+    const team = this.team();
+    if (!review || !team) return [];
+    return team.students.map((student) => {
+      let technicalEarned = 0;
+      let technicalMax = 0;
+      let nonTechnicalEarned = 0;
+      let nonTechnicalMax = 0;
+      for (const ss of scores) {
+        if (ss.score === null) continue;
+        const section = review.sections.find((s) => s.id === ss.sectionId);
+        if (!section) continue;
+        const appliesToStudent = section.scope === 'team' ? ss.studentId === null : ss.studentId === student.id;
+        if (!appliesToStudent) continue;
+        if (section.category === 'technical') {
+          technicalEarned += ss.score;
+          technicalMax += ss.maxMarks;
+        } else {
+          nonTechnicalEarned += ss.score;
+          nonTechnicalMax += ss.maxMarks;
+        }
       }
-    }
-    return {
-      technicalEarned: Math.round(technicalEarned * 100) / 100,
-      technicalMax,
-      nonTechnicalEarned: Math.round(nonTechnicalEarned * 100) / 100,
-      nonTechnicalMax,
-      totalEarned: Math.round((technicalEarned + nonTechnicalEarned) * 100) / 100,
-      totalMax: technicalMax + nonTechnicalMax,
-    };
+      return {
+        studentId: student.id,
+        studentName: student.name,
+        technicalEarned: Math.round(technicalEarned * 100) / 100,
+        technicalMax,
+        nonTechnicalEarned: Math.round(nonTechnicalEarned * 100) / 100,
+        nonTechnicalMax,
+        totalEarned: Math.round((technicalEarned + nonTechnicalEarned) * 100) / 100,
+        totalMax: technicalMax + nonTechnicalMax,
+      };
+    });
   });
 
   remainingSeconds = computed(() => {

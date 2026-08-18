@@ -1,5 +1,10 @@
 export type SectionCategory = "technical" | "non_technical";
 
+/** 'team' sections get one shared score for the whole team (the project is
+ * a team deliverable); 'individual' sections (e.g. Component Knowledge,
+ * Presentation) are scored separately per student on the team. */
+export type SectionScope = "team" | "individual";
+
 export interface ReviewDef {
   id: string;
   number: number;
@@ -15,6 +20,7 @@ export interface ReviewSectionDef {
   key: string;
   label: string;
   category: SectionCategory;
+  scope: SectionScope;
   maxMarks: number;
   order: number;
 }
@@ -42,12 +48,15 @@ export interface SubtopicDef {
   createdAt: string;
 }
 
-/** One reviewer's own 4-band rating of one subtopic, for one TEAM (marks
- * are team-level, shared across all its members). */
+/** One reviewer's own 4-band rating of one subtopic, for one team - and,
+ * for 'individual' scope sections, one specific student on that team
+ * (student_id is null for 'team' scope sections, where the mark is shared
+ * across the whole team). */
 export interface SubtopicScoreRow {
   id: string;
   subtopic_id: string;
   team_id: string;
+  student_id: string | null;
   reviewer_id: string;
   band: GradeBand;
   updated_at: string;
@@ -70,12 +79,15 @@ export interface ReviewReviewerRow {
   reviewer_id: string;
 }
 
-/** A section's computed score for one team+review: the average band across
- * whichever subtopics have at least one rating, scaled to maxMarks. `score`
- * is null until at least one subtopic under the section has been rated. */
+/** A section's computed score for one team+review (studentId null for
+ * 'team' scope sections) or one student+team+review ('individual' scope):
+ * the average band across whichever subtopics have at least one rating,
+ * scaled to maxMarks. `score` is null until at least one subtopic under the
+ * section has been rated. */
 export interface SectionScoreRow {
   sectionId: string;
   teamId: string;
+  studentId: string | null;
   reviewId: string;
   score: number | null;
   maxMarks: number;
@@ -83,12 +95,16 @@ export interface SectionScoreRow {
   totalSubtopics: number;
 }
 
-/** A team's rolled-up totals for one review: technical/non-technical/grand
- * "earned so far" out of "possible so far" (only sections with at least one
- * rated subtopic count toward "possible", so an unstarted review reads as
- * 0/0 rather than 0/100). */
+/** One student's rolled-up totals for one review: technical/non-technical/
+ * grand "earned so far" out of "possible so far" (only sections with at
+ * least one rated subtopic count toward "possible", so an unstarted review
+ * reads as 0/0 rather than 0/100). 'team' scope sections contribute the
+ * same value to every student on the team; 'individual' scope sections
+ * (e.g. Presentation) contribute that student's own score - so two
+ * teammates can have different totals for the same review. */
 export interface ReviewTotalRow {
   teamId: string;
+  studentId: string;
   reviewId: string;
   technicalEarned: number;
   technicalMax: number;
@@ -99,7 +115,9 @@ export interface ReviewTotalRow {
 }
 
 /** A team's weakest-rated subtopics across every review scored so far -
- * replaces the old per-student Q&A log entirely. */
+ * replaces the old per-student Q&A log entirely. Pools ratings across all
+ * students on the team for individual-scope sections (a broad "where to
+ * probe" signal, not attributed to one person). */
 export interface WeakTopicRow {
   subtopicId: string;
   subtopicLabel: string;
@@ -166,9 +184,11 @@ export interface RosterExportRow {
 export interface SectionScoreExportRow {
   Class: string;
   Team: string;
+  Student: string | null;
   ReviewNumber: number;
   ReviewLabel: string;
   Category: SectionCategory;
+  Scope: SectionScope;
   Section: string;
   MaxMarks: number;
   Score: number | null;
@@ -179,6 +199,7 @@ export interface SectionScoreExportRow {
 export interface ReviewTotalExportRow {
   Class: string;
   Team: string;
+  Student: string;
   ReviewNumber: number;
   ReviewLabel: string;
   TechnicalEarned: number;
@@ -189,9 +210,10 @@ export interface ReviewTotalExportRow {
   TotalMax: number;
 }
 
-export interface TeamGrandTotalExportRow {
+export interface StudentGrandTotalExportRow {
   Class: string;
   Team: string;
+  Student: string;
   GrandTotalEarned: number;
   GrandTotalMax: number;
   Percentage: number | null;

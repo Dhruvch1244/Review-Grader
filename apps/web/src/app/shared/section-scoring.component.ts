@@ -1,10 +1,12 @@
 import { Component, DestroyRef, computed, effect, inject, input, output, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { ApiClientService } from '../core/services/api-client.service';
 import type {
   GradeBand,
   ReviewDef,
   ReviewSectionDef,
   SectionScoreRow,
+  StudentRow,
   SubtopicDef,
   SubtopicScoreRow,
 } from '../core/models/types';
@@ -35,7 +37,7 @@ function round2(n: number): number {
 @Component({
   selector: 'app-section-scoring',
   standalone: true,
-  imports: [ButtonComponent, BadgeComponent, InputDirective],
+  imports: [NgTemplateOutlet, ButtonComponent, BadgeComponent, InputDirective],
   templateUrl: './section-scoring.component.html',
 })
 export class SectionScoringComponent {
@@ -44,6 +46,9 @@ export class SectionScoringComponent {
   teamId = input.required<string>();
   reviewId = input.required<string>();
   currentReviewerId = input.required<string | null>();
+  /** Individual-scope sections (e.g. Presentation) get one score per
+   * student on this team instead of one shared team score. */
+  students = input.required<StudentRow[]>();
   /** Bump this (e.g. after a team reset) to force an immediate refetch even
    * though teamId/reviewId haven't changed. */
   resetNonce = input(0);
@@ -100,10 +105,11 @@ export class SectionScoringComponent {
   }
 
   private computeSectionScores(sections: SectionWithSubtopics[], entries: SubtopicScoreRow[]): SectionScoreRow[] {
-    return sections.map((section) => {
+    const students = this.students();
+    const scoreFor = (section: SectionWithSubtopics, studentId: string | null): SectionScoreRow => {
       const avgBySubtopic = new Map<string, number>();
       for (const sub of section.subtopics) {
-        const subEntries = entries.filter((e) => e.subtopic_id === sub.id);
+        const subEntries = entries.filter((e) => e.subtopic_id === sub.id && e.student_id === studentId);
         if (subEntries.length > 0) {
           avgBySubtopic.set(sub.id, subEntries.reduce((sum, e) => sum + GRADE_BAND_VALUE[e.band], 0) / subEntries.length);
         }
@@ -117,21 +123,27 @@ export class SectionScoringComponent {
       return {
         sectionId: section.id,
         teamId: this.teamId(),
+        studentId,
         reviewId: this.reviewId(),
         score,
         maxMarks: section.maxMarks,
         ratedSubtopics,
         totalSubtopics: section.subtopics.length,
-      } satisfies SectionScoreRow;
-    });
+      };
+    };
+    return sections.flatMap((section) =>
+      section.scope === 'team' ? [scoreFor(section, null)] : students.map((s) => scoreFor(section, s.id))
+    );
   }
 
-  sectionScore(sectionId: string): SectionScoreRow | undefined {
-    return this.computeSectionScores(this.sections(), this.entries()).find((s) => s.sectionId === sectionId);
+  sectionScore(sectionId: string, studentId: string | null = null): SectionScoreRow | undefined {
+    return this.computeSectionScores(this.sections(), this.entries()).find(
+      (s) => s.sectionId === sectionId && s.studentId === studentId
+    );
   }
 
-  avgBandForSubtopic(subtopicId: string): { avg: number; count: number } | null {
-    const subEntries = this.entries().filter((e) => e.subtopic_id === subtopicId);
+  avgBandForSubtopic(subtopicId: string, studentId: string | null = null): { avg: number; count: number } | null {
+    const subEntries = this.entries().filter((e) => e.subtopic_id === subtopicId && e.student_id === studentId);
     if (subEntries.length === 0) return null;
     return {
       avg: round2(subEntries.reduce((sum, e) => sum + GRADE_BAND_VALUE[e.band], 0) / subEntries.length),
@@ -139,27 +151,32 @@ export class SectionScoringComponent {
     };
   }
 
-  myBandForSubtopic(subtopicId: string): GradeBand | undefined {
+  myBandForSubtopic(subtopicId: string, studentId: string | null = null): GradeBand | undefined {
     const reviewerId = this.currentReviewerId();
     if (!reviewerId) return undefined;
-    return this.entries().find((e) => e.subtopic_id === subtopicId && e.reviewer_id === reviewerId)?.band;
+    return this.entries().find(
+      (e) => e.subtopic_id === subtopicId && e.reviewer_id === reviewerId && e.student_id === studentId
+    )?.band;
   }
 
-  async setSubtopicBand(subtopicId: string, band: GradeBand) {
+  async setSubtopicBand(subtopicId: string, band: GradeBand, studentId: string | null = null) {
     const reviewerId = this.currentReviewerId();
     if (!reviewerId) return;
-    const current = this.myBandForSubtopic(subtopicId);
+    const current = this.myBandForSubtopic(subtopicId, studentId);
     const nextBand: GradeBand | null = current === band ? null : band;
 
-    const withoutMine = this.entries().filter((e) => !(e.subtopic_id === subtopicId && e.reviewer_id === reviewerId));
+    const withoutMine = this.entries().filter(
+      (e) => !(e.subtopic_id === subtopicId && e.reviewer_id === reviewerId && e.student_id === studentId)
+    );
     const optimistic = nextBand === null
       ? withoutMine
       : [
           ...withoutMine,
           {
-            id: `${subtopicId}:${this.teamId()}:${reviewerId}`,
+            id: `${subtopicId}:${this.teamId()}:${studentId ?? 'team'}:${reviewerId}`,
             subtopic_id: subtopicId,
             team_id: this.teamId(),
+            student_id: studentId,
             reviewer_id: reviewerId,
             band: nextBand,
             updated_at: new Date().toISOString(),
@@ -168,11 +185,11 @@ export class SectionScoringComponent {
     this.entries.set(optimistic);
     this.sectionScoresChange.emit(this.computeSectionScores(this.sections(), optimistic));
 
-    const result = await this.api.apiWrite<{ entries: SubtopicScoreRow[]; sectionScore: SectionScoreRow }>(
+    const result = await this.api.apiWrite<{ entries: SubtopicScoreRow[]; sectionScores: SectionScoreRow[] }>(
       'PUT',
       '/api/subtopic-scores',
-      { subtopicId, teamId: this.teamId(), reviewerId, band: nextBand },
-      `subtopic-${subtopicId}-${this.teamId()}-${reviewerId}`
+      { subtopicId, teamId: this.teamId(), studentId, reviewerId, band: nextBand },
+      `subtopic-${subtopicId}-${this.teamId()}-${studentId ?? 'team'}-${reviewerId}`
     );
     if (result?.entries) {
       this.entries.set(result.entries);

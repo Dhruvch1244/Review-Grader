@@ -1,5 +1,4 @@
 import type { ClassData, ReviewDef, ReviewSectionDef, SectionScoreExportRow, ReviewTotalExportRow } from "./models/types";
-import { teamGrandTotals } from "./rollup";
 
 type ReviewWithSections = ReviewDef & { sections: ReviewSectionDef[] };
 
@@ -8,18 +7,81 @@ function avg(nums: number[]): number | null {
   return Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 100) / 100;
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 function pct(earned: number, max: number): number | null {
   return max > 0 ? Math.round((earned / max) * 10000) / 100 : null;
 }
 
-/** Each team's overall percentage across every review scored so far. */
+interface TeamReviewAgg {
+  Team: string;
+  ReviewNumber: number;
+  TechnicalEarned: number;
+  TechnicalMax: number;
+  NonTechnicalEarned: number;
+  NonTechnicalMax: number;
+  TotalEarned: number;
+  TotalMax: number;
+}
+
+/**
+ * reviewTotalRows is per-STUDENT (team-scope sections contribute the same
+ * value to every student, but individual-scope sections vary per person).
+ * Every stats chart here is team-level, so this averages a team's students
+ * back into one row per (team, review) - the shape the charts below all
+ * expect. Max values are identical across a team's students already (the
+ * same sections apply to everyone), so averaging them is a no-op; Earned
+ * genuinely reflects the team's individual-scope performance on average.
+ */
+export function aggregateByTeamReview(reviewTotalRows: ReviewTotalExportRow[]): TeamReviewAgg[] {
+  const byKey = new Map<string, ReviewTotalExportRow[]>();
+  for (const r of reviewTotalRows) {
+    const key = `${r.Team}::${r.ReviewNumber}`;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)!.push(r);
+  }
+  return Array.from(byKey.entries()).map(([key, rows]) => {
+    const [Team, reviewNumberStr] = key.split("::");
+    const n = rows.length;
+    const sum = (f: (r: ReviewTotalExportRow) => number) => rows.reduce((s, r) => s + f(r), 0);
+    return {
+      Team,
+      ReviewNumber: Number(reviewNumberStr),
+      TechnicalEarned: round2(sum((r) => r.TechnicalEarned) / n),
+      TechnicalMax: round2(sum((r) => r.TechnicalMax) / n),
+      NonTechnicalEarned: round2(sum((r) => r.NonTechnicalEarned) / n),
+      NonTechnicalMax: round2(sum((r) => r.NonTechnicalMax) / n),
+      TotalEarned: round2(sum((r) => r.TotalEarned) / n),
+      TotalMax: round2(sum((r) => r.TotalMax) / n),
+    };
+  });
+}
+
+export function teamGrandTotals(teamReviewAggs: TeamReviewAgg[]): { team: string; earned: number; max: number; percentage: number | null }[] {
+  const byTeam = new Map<string, TeamReviewAgg[]>();
+  for (const r of teamReviewAggs) {
+    if (!byTeam.has(r.Team)) byTeam.set(r.Team, []);
+    byTeam.get(r.Team)!.push(r);
+  }
+  return Array.from(byTeam.entries()).map(([team, rows]) => {
+    const earned = rows.reduce((s, r) => s + r.TotalEarned, 0);
+    const max = rows.reduce((s, r) => s + r.TotalMax, 0);
+    return { team, earned: round2(earned), max: round2(max), percentage: max > 0 ? round2((earned / max) * 100) : null };
+  });
+}
+
+/** Each team's overall percentage across every review scored so far
+ * (averaged across its students where individual-scope sections apply). */
 export function teamPercentages(
   reviewTotalRows: ReviewTotalExportRow[]
 ): { team: string; percentage: number | null; reviewsScored: number }[] {
-  return teamGrandTotals(reviewTotalRows).map((t) => ({
-    team: t.Team,
-    percentage: t.Percentage,
-    reviewsScored: reviewTotalRows.filter((r) => r.Team === t.Team && r.TotalMax > 0).length,
+  const teamReviewAggs = aggregateByTeamReview(reviewTotalRows);
+  return teamGrandTotals(teamReviewAggs).map((t) => ({
+    team: t.team,
+    percentage: t.percentage,
+    reviewsScored: teamReviewAggs.filter((r) => r.Team === t.team && r.TotalMax > 0).length,
   }));
 }
 
@@ -30,10 +92,11 @@ export function teamTrendByReview(
   reviews: ReviewWithSections[],
   reviewTotalRows: ReviewTotalExportRow[]
 ): Record<string, number | string | null>[] {
+  const teamReviewAggs = aggregateByTeamReview(reviewTotalRows);
   return reviews.map((r) => {
     const row: Record<string, number | string | null> = { review: `R${r.number}` };
     for (const t of classData.teams) {
-      const rt = reviewTotalRows.find((row2) => row2.Team === t.name && row2.ReviewNumber === r.number);
+      const rt = teamReviewAggs.find((row2) => row2.Team === t.name && row2.ReviewNumber === r.number);
       row[t.name] = rt && rt.TotalMax > 0 ? pct(rt.TotalEarned, rt.TotalMax) : null;
     }
     return row;
@@ -44,8 +107,9 @@ export function classAverageTrend(
   reviews: ReviewWithSections[],
   reviewTotalRows: ReviewTotalExportRow[]
 ): { review: string; avg: number | null }[] {
+  const teamReviewAggs = aggregateByTeamReview(reviewTotalRows);
   return reviews.map((r) => {
-    const pcts = reviewTotalRows
+    const pcts = teamReviewAggs
       .filter((row) => row.ReviewNumber === r.number && row.TotalMax > 0)
       .map((row) => pct(row.TotalEarned, row.TotalMax))
       .filter((p): p is number => p !== null);
@@ -68,8 +132,9 @@ export function categoryBreakdownByReview(
   reviews: ReviewWithSections[],
   reviewTotalRows: ReviewTotalExportRow[]
 ): { review: string; Technical: number | null; NonTechnical: number | null }[] {
+  const teamReviewAggs = aggregateByTeamReview(reviewTotalRows);
   return reviews.map((r) => {
-    const rows = reviewTotalRows.filter((row) => row.ReviewNumber === r.number && row.TotalMax > 0);
+    const rows = teamReviewAggs.filter((row) => row.ReviewNumber === r.number && row.TotalMax > 0);
     const techPcts = rows.map((row) => pct(row.TechnicalEarned, row.TechnicalMax)).filter((p): p is number => p !== null);
     const nonTechPcts = rows
       .filter((row) => row.NonTechnicalMax > 0)
@@ -84,6 +149,21 @@ export interface HeatmapMatrix {
   rows: { section: string; category: string; values: (number | null)[] }[];
 }
 
+/** A team's average score for one section in one review - a single row for
+ * team-scope sections, averaged across students for individual-scope ones. */
+function avgSectionScoreForTeam(
+  sectionScoreRows: SectionScoreExportRow[],
+  teamName: string,
+  reviewNumber: number,
+  sectionLabel: string
+): number | null {
+  const rows = sectionScoreRows.filter(
+    (sr) => sr.Team === teamName && sr.ReviewNumber === reviewNumber && sr.Section === sectionLabel && sr.Score !== null
+  );
+  if (rows.length === 0) return null;
+  return round2(rows.reduce((s, r) => s + (r.Score as number), 0) / rows.length);
+}
+
 /** Teams x sections matrix of percentage-of-max (0-100) for one review. */
 export function sectionHeatmap(
   classData: ClassData,
@@ -95,10 +175,8 @@ export function sectionHeatmap(
     section: s.label,
     category: s.category,
     values: teams.map((teamName) => {
-      const row = sectionScoreRows.find(
-        (sr) => sr.Team === teamName && sr.ReviewNumber === review.number && sr.Section === s.label
-      );
-      return row && row.Score !== null ? pct(row.Score, row.MaxMarks) : null;
+      const score = avgSectionScoreForTeam(sectionScoreRows, teamName, review.number, s.label);
+      return score !== null ? pct(score, s.maxMarks) : null;
     }),
   }));
   return { teams, rows };
@@ -112,8 +190,9 @@ export function scoreHistogram(reviewTotalRows: ReviewTotalExportRow[]): { bucke
     { label: "80-90%", test: (n: number) => n >= 80 && n < 90 },
     { label: "90%+", test: (n: number) => n >= 90 },
   ];
-  const pcts = teamGrandTotals(reviewTotalRows)
-    .map((t) => t.Percentage)
+  const teamReviewAggs = aggregateByTeamReview(reviewTotalRows);
+  const pcts = teamGrandTotals(teamReviewAggs)
+    .map((t) => t.percentage)
     .filter((p): p is number => p !== null);
   return buckets.map((b) => ({ bucket: b.label, count: pcts.filter(b.test).length }));
 }
@@ -123,7 +202,7 @@ export function scoreHistogram(reviewTotalRows: ReviewTotalExportRow[]): { bucke
 export function technicalVsNonTechnicalScatter(
   reviewTotalRows: ReviewTotalExportRow[]
 ): { team: string; technicalPct: number | null; nonTechnicalPct: number | null }[] {
-  const r1 = reviewTotalRows.filter((r) => r.ReviewNumber === 1 && r.TotalMax > 0);
+  const r1 = aggregateByTeamReview(reviewTotalRows).filter((r) => r.ReviewNumber === 1 && r.TotalMax > 0);
   return r1.map((r) => ({
     team: r.Team,
     technicalPct: pct(r.TechnicalEarned, r.TechnicalMax),
@@ -132,7 +211,9 @@ export function technicalVsNonTechnicalScatter(
 }
 
 /** Low/Mid/High section-score counts per review (by percentage of max),
- * so the health of a class's scoring shows as a trend across R1-R4. */
+ * so the health of a class's scoring shows as a trend across R1-R4. Each
+ * student's individual-scope rating counts separately (not averaged), so
+ * this reflects real spread across people, not just teams. */
 export function scoreHealthByReview(
   reviews: ReviewWithSections[],
   sectionScoreRows: SectionScoreExportRow[]
@@ -168,10 +249,8 @@ export function radarDataForReview(
       axis: s.label.length > 28 ? `${s.label.slice(0, 27)}…` : s.label,
     };
     for (const teamName of teamNames) {
-      const row = sectionScoreRows.find(
-        (sr) => sr.Team === teamName && sr.ReviewNumber === review.number && sr.Section === s.label
-      );
-      point[teamName] = row && row.Score !== null ? pct(row.Score, row.MaxMarks)! : 0;
+      const score = avgSectionScoreForTeam(sectionScoreRows, teamName, review.number, s.label);
+      point[teamName] = score !== null ? pct(score, s.maxMarks)! : 0;
     }
     return point;
   });

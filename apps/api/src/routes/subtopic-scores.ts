@@ -12,11 +12,13 @@ subtopicScoresRouter.get("/", (req, res) => {
   res.json(getSubtopicScoreEntries(teamId, reviewId));
 });
 
+/** Body: { subtopicId, teamId, studentId, reviewerId, band }. studentId is
+ * required for individual-scope sections, omit/null for team-scope ones. */
 subtopicScoresRouter.put("/", (req, res) => {
   const body = req.body ?? {};
   if (!body.subtopicId || !body.teamId || !body.reviewerId) {
     return res.status(400).json({ error: "subtopicId, teamId, reviewerId are required" });
   }
-  const result = upsertSubtopicScore(body.subtopicId, body.teamId, body.reviewerId, body.band ?? null);
+  const result = upsertSubtopicScore(body.subtopicId, body.teamId, body.studentId ?? null, body.reviewerId, body.band ?? null);
   res.json(result);
 });

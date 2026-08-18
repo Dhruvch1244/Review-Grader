@@ -97,16 +97,18 @@
               <app-card-header class="flex-row items-center justify-between">
                 <app-card-title class="text-sm">{{ team.name }} - {{ review.label }}</app-card-title>
                 <div class="flex items-center gap-3">
-                  @if (reviewTotal(); as rt) {
-                    <span class="text-sm">
-                      Total: <strong>{{ rt.totalEarned }}</strong> / {{ rt.totalMax }}
-                      @if (rt.nonTechnicalMax > 0) {
-                        <span class="text-muted-foreground">
-                          (Tech {{ rt.technicalEarned }}/{{ rt.technicalMax }}, Non-Tech
-                          {{ rt.nonTechnicalEarned }}/{{ rt.nonTechnicalMax }})
-                        </span>
-                      }
-                    </span>
+                  @if (reviewTotals().length === 1) {
+                    @if (reviewTotals()[0]; as rt) {
+                      <span class="text-sm">
+                        Total: <strong>{{ rt.totalEarned }}</strong> / {{ rt.totalMax }}
+                        @if (rt.nonTechnicalMax > 0) {
+                          <span class="text-muted-foreground">
+                            (Tech {{ rt.technicalEarned }}/{{ rt.technicalMax }}, Non-Tech
+                            {{ rt.nonTechnicalEarned }}/{{ rt.nonTechnicalMax }})
+                          </span>
+                        }
+                      </span>
+                    }
                   }
                   <button
                     appButton
@@ -121,11 +123,19 @@
               </app-card-header>
               <app-card-content class="space-y-4">
                 <p class="text-xs text-muted-foreground">Roster: {{ rosterNames() }}</p>
+                @if (reviewTotals().length > 1) {
+                  <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    @for (rt of reviewTotals(); track rt.studentId) {
+                      <span>{{ rt.studentName }}: <strong class="text-foreground">{{ rt.totalEarned }}</strong> / {{ rt.totalMax }}</span>
+                    }
+                  </div>
+                }
                 <app-weak-topics [teamId]="team.id" />
                 <app-section-scoring
                   [teamId]="team.id"
                   [reviewId]="review.id"
                   [currentReviewerId]="currentReviewerId()"
+                  [students]="team.students"
                   [resetNonce]="resetNonce()"
                   (sectionScoresChange)="onSectionScoresChange($event)"
                 />

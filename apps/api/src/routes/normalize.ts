@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { listClasses, getClassData, listReviews, getScoresForClass } from "../queries";
 import { buildExportRows } from "../export-rows";
-import { teamGrandTotals } from "../rollup";
+import { aggregateByTeamReview, teamGrandTotals } from "../stats-utils";
 import { computeNormalization, type RawTeamScore } from "../normalization";
 
 export const normalizeRouter = Router();
@@ -16,10 +16,10 @@ normalizeRouter.get("/", (_req, res) => {
     if (!data) continue;
     const { sectionScores, reviewTotals } = getScoresForClass(cls.id);
     const { reviewTotalRows } = buildExportRows(data, reviews, sectionScores, reviewTotals);
-    const grand = teamGrandTotals(reviewTotalRows);
+    const grand = teamGrandTotals(aggregateByTeamReview(reviewTotalRows));
     for (const t of grand) {
-      if (t.Percentage === null) continue;
-      rows.push({ classId: cls.id, className: cls.name, team: t.Team, raw: t.Percentage });
+      if (t.percentage === null) continue;
+      rows.push({ classId: cls.id, className: cls.name, team: t.team, raw: t.percentage });
     }
   }
 

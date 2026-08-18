@@ -21,7 +21,7 @@
 
   @if (grandTotals().length > 0) {
     <div class="flex items-center justify-between">
-      <p class="text-sm text-muted-foreground">{{ grandTotals().length }} teams across {{ classCount() }} class(es)</p>
+      <p class="text-sm text-muted-foreground">{{ grandTotals().length }} students across {{ classCount() }} class(es)</p>
       <div class="flex gap-2">
         <button appButton variant="outline" (click)="reset()">Clear</button>
         <button appButton (click)="downloadMerged()">Download master .xlsx</button>
@@ -35,15 +35,17 @@
             <tr>
               <th class="text-left px-3 py-2 font-medium">Class</th>
               <th class="text-left px-3 py-2 font-medium">Team</th>
+              <th class="text-left px-3 py-2 font-medium">Name</th>
               <th class="text-right px-3 py-2 font-medium">Grand total</th>
               <th class="text-right px-3 py-2 font-medium">Percentage</th>
             </tr>
           </thead>
           <tbody>
-            @for (row of grandTotals(); track row.Class + row.Team) {
+            @for (row of grandTotals(); track row.Class + row.Team + row.Student) {
               <tr class="border-t">
                 <td class="px-3 py-2">{{ row.Class }}</td>
                 <td class="px-3 py-2">{{ row.Team }}</td>
+                <td class="px-3 py-2">{{ row.Student }}</td>
                 <td class="px-3 py-2 text-right">{{ row.GrandTotalEarned }} / {{ row.GrandTotalMax }}</td>
                 <td class="px-3 py-2 text-right font-medium">{{ row.Percentage !== null ? row.Percentage + '%' : '—' }}</td>
               </tr>

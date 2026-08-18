@@ -24,14 +24,15 @@ reviewsRouter.put("/sections", (req, res) => {
 });
 
 /** Admin adds a new section to a review. Body: { reviewId, label,
- * category, maxMarks }. */
+ * category, scope, maxMarks }. scope defaults to 'team' if omitted. */
 reviewsRouter.post("/sections", (req, res) => {
   const body = req.body ?? {};
   const label = String(body.label ?? "").trim();
+  const scope = body.scope === "individual" ? "individual" : "team";
   if (!body.reviewId || !label || !["technical", "non_technical"].includes(body.category) || typeof body.maxMarks !== "number") {
     return res.status(400).json({ error: "reviewId, label, category ('technical'|'non_technical'), maxMarks are required" });
   }
-  addReviewSection(body.reviewId, label, body.category, body.maxMarks);
+  addReviewSection(body.reviewId, label, body.category, scope, body.maxMarks);
   res.status(201).json(listReviews());
 });
 

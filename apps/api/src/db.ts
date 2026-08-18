@@ -51,13 +51,16 @@ CREATE TABLE IF NOT EXISTS reviews (
 -- Replaces the old 1-5 rubric "criteria": a marks-based section of a review
 -- (e.g. "Database Design and Modeling" - 10 marks), grouped technical or
 -- non-technical. Admin-editable label/marks; not scored directly - see
--- subtopics below.
+-- subtopics below. Most sections are 'team' scope (one shared score for the
+-- whole team); a few (e.g. Component Knowledge, Presentation) are
+-- 'individual' scope - scored separately per student on the team.
 CREATE TABLE IF NOT EXISTS review_sections (
   id TEXT PRIMARY KEY,
   review_id TEXT NOT NULL REFERENCES reviews(id),
   key TEXT NOT NULL,
   label TEXT NOT NULL,
   category TEXT NOT NULL, -- 'technical' | 'non_technical'
+  scope TEXT NOT NULL DEFAULT 'team', -- 'team' | 'individual'
   max_marks REAL NOT NULL,
   order_index INTEGER NOT NULL
 );
@@ -74,19 +77,24 @@ CREATE TABLE IF NOT EXISTS subtopics (
   created_at TEXT NOT NULL
 );
 
--- One reviewer's own 4-band rating of one subtopic FOR ONE TEAM (marks are
--- team-level, shared across all its members - the project is a team
--- deliverable). Averaged across whichever reviewers have rated a subtopic,
--- then averaged across a section's rated subtopics and scaled to the
--- section's max_marks (see computeSectionScores).
+-- One reviewer's own 4-band rating of one subtopic, for one team (and, for
+-- 'individual' scope sections, one specific student on that team - NULL
+-- student_id for 'team' scope sections, where the mark is shared across
+-- the whole team since the project is a team deliverable). Averaged across
+-- whichever reviewers have rated a subtopic, then averaged across a
+-- section's rated subtopics and scaled to the section's max_marks (see
+-- computeSectionScores). id is a composite key
+-- (subtopicId:teamId:studentId-or-'team':reviewerId) rather than a
+-- multi-column UNIQUE constraint, since SQLite treats NULL as distinct in
+-- UNIQUE comparisons and would otherwise let team-scope rows duplicate.
 CREATE TABLE IF NOT EXISTS subtopic_scores (
   id TEXT PRIMARY KEY,
   subtopic_id TEXT NOT NULL REFERENCES subtopics(id),
   team_id TEXT NOT NULL REFERENCES teams(id),
+  student_id TEXT REFERENCES students(id),
   reviewer_id TEXT NOT NULL,
   band TEXT NOT NULL, -- 'below' | 'partial' | 'meets' | 'exceeds' (1-4)
-  updated_at TEXT NOT NULL,
-  UNIQUE(subtopic_id, team_id, reviewer_id)
+  updated_at TEXT NOT NULL
 );
 
 -- Global reviewer roster (not per-class) - admin adds a name once and it's
@@ -126,12 +134,12 @@ function seedReviewSections(db: Database.Database) {
     "INSERT INTO reviews (id, number, label, sprint_range) VALUES (?, ?, ?, ?)"
   );
   const insertSection = db.prepare(
-    "INSERT INTO review_sections (id, review_id, key, label, category, max_marks, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO review_sections (id, review_id, key, label, category, scope, max_marks, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
   );
   const tx = db.transaction(() => {
     for (const r of REVIEWS) insertReview.run(r.id, r.number, r.label, r.sprintRange);
     for (const s of REVIEW_SECTIONS) {
-      insertSection.run(s.id, s.reviewId, s.key, s.label, s.category, s.maxMarks, s.order);
+      insertSection.run(s.id, s.reviewId, s.key, s.label, s.category, s.scope, s.maxMarks, s.order);
     }
   });
   tx();

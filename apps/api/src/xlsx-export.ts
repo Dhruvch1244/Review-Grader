@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 import { getClassData, listReviews, getScoresForClass } from "./queries";
-import { teamGrandTotals } from "./rollup";
+import { studentGrandTotals } from "./rollup";
 import { buildExportRows } from "./export-rows";
 import type { ClassData, ReviewTotalExportRow } from "./types";
 
@@ -29,15 +29,17 @@ const PANELISTS_SHEET: (string | number)[][] = [
  * The stakeholder-facing summary sheet: one row per person, grouped under
  * their team (team name merged and centered down the block, matching the
  * requested layout), with each of the 4 reviews' earned/possible marks and
- * a grand total column. Marks are team-level - every member of a team
- * shows the same figures since the project is a shared deliverable.
+ * a grand total column. Most marks are team-level (shared across every
+ * member), but a few sections (Component Knowledge, Project Knowledge,
+ * Presentation) are scored per-student, so two teammates' figures can
+ * genuinely differ.
  */
 function buildSummarySheet(
   data: ClassData,
   reviewTotalRows: ReviewTotalExportRow[],
   reviewLabels: { number: number; label: string; max: number }[]
 ): XLSX.WorkSheet {
-  const grandByTeam = new Map(teamGrandTotals(reviewTotalRows).map((g) => [g.Team, g]));
+  const grandByStudent = new Map(studentGrandTotals(reviewTotalRows).map((g) => [`${g.Team}::${g.Student}`, g]));
 
   const header = ["Team", "Name", ...reviewLabels.map((r) => `${r.label} (${r.max})`), "Grand Total"];
   const rows: (string | number)[][] = [header];
@@ -46,17 +48,17 @@ function buildSummarySheet(
 
   for (const team of data.teams) {
     const startRow = rowIdx;
-    const totalsForTeam = reviewTotalRows.filter((r) => r.Team === team.name);
-    const cellFor = (num: number) => {
-      const t = totalsForTeam.find((x) => x.ReviewNumber === num);
-      return t && t.TotalMax > 0 ? `${t.TotalEarned}/${t.TotalMax}` : "—";
-    };
-    const grand = grandByTeam.get(team.name);
-    const grandCell =
-      grand && grand.GrandTotalMax > 0 ? `${grand.GrandTotalEarned}/${grand.GrandTotalMax} (${grand.Percentage}%)` : "—";
 
     const members = team.students.length > 0 ? team.students : [{ id: "", team_id: team.id, slot_index: 0, name: "—" }];
     for (const student of members) {
+      const totalsForStudent = reviewTotalRows.filter((r) => r.Team === team.name && r.Student === student.name);
+      const cellFor = (num: number) => {
+        const t = totalsForStudent.find((x) => x.ReviewNumber === num);
+        return t && t.TotalMax > 0 ? `${t.TotalEarned}/${t.TotalMax}` : "—";
+      };
+      const grand = grandByStudent.get(`${team.name}::${student.name}`);
+      const grandCell =
+        grand && grand.GrandTotalMax > 0 ? `${grand.GrandTotalEarned}/${grand.GrandTotalMax} (${grand.Percentage}%)` : "—";
       rows.push([team.name, student.name, ...reviewLabels.map((r) => cellFor(r.number)), grandCell]);
       rowIdx++;
     }
@@ -79,7 +81,7 @@ export function buildClassWorkbook(classId: string): XLSX.WorkBook {
   const { sectionScores, reviewTotals } = getScoresForClass(classId);
 
   const { roster, sectionScoreRows, reviewTotalRows } = buildExportRows(data, reviews, sectionScores, reviewTotals);
-  const grandTotals = teamGrandTotals(reviewTotalRows);
+  const grandTotals = studentGrandTotals(reviewTotalRows);
   const reviewLabels = reviews.map((r) => ({
     number: r.number,
     label: r.label,

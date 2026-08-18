@@ -1,6 +1,6 @@
 import { Component, computed, signal } from '@angular/core';
 import * as XLSX from 'xlsx';
-import { teamGrandTotals } from '../../core/rollup';
+import { studentGrandTotals } from '../../core/rollup';
 import type { RosterExportRow, SectionScoreExportRow, ReviewTotalExportRow } from '../../core/models/types';
 import { ButtonComponent } from '../../ui/button.component';
 import { CardComponent, CardContentComponent } from '../../ui/card.component';
@@ -19,9 +19,10 @@ export class MergeComponent {
   error = signal<string | null>(null);
 
   grandTotals = computed(() =>
-    teamGrandTotals(this.reviewTotals()).sort((a, b) => {
+    studentGrandTotals(this.reviewTotals()).sort((a, b) => {
       if (a.Class !== b.Class) return a.Class.localeCompare(b.Class);
-      return a.Team.localeCompare(b.Team);
+      if (a.Team !== b.Team) return a.Team.localeCompare(b.Team);
+      return a.Student.localeCompare(b.Student);
     })
   );
   classCount = computed(() => new Set(this.grandTotals().map((r) => r.Class)).size);

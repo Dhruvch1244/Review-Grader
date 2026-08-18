@@ -10,6 +10,7 @@ import type {
   ReviewDef,
   ReviewSectionDef,
   SectionCategory,
+  SectionScope,
   SubtopicDef,
   SubtopicScoreRow,
   ReviewerRow,
@@ -153,7 +154,12 @@ export function addStudent(teamId: string, name?: string): StudentRow {
 }
 
 export function deleteStudent(studentId: string): void {
-  getDb().prepare("DELETE FROM students WHERE id = ?").run(studentId);
+  const db = getDb();
+  const tx = db.transaction(() => {
+    db.prepare("DELETE FROM subtopic_scores WHERE student_id = ?").run(studentId);
+    db.prepare("DELETE FROM students WHERE id = ?").run(studentId);
+  });
+  tx();
 }
 
 // ---- Global reviewer roster ----
@@ -228,6 +234,7 @@ function getSectionsForReview(reviewId: string): SectionWithSubtopics[] {
     key: string;
     label: string;
     category: SectionCategory;
+    scope: SectionScope;
     max_marks: number;
     order_index: number;
   }[];
@@ -249,6 +256,7 @@ function getSectionsForReview(reviewId: string): SectionWithSubtopics[] {
     key: s.key,
     label: s.label,
     category: s.category,
+    scope: s.scope,
     maxMarks: s.max_marks,
     order: s.order_index,
     subtopics: subtopics
@@ -280,8 +288,8 @@ export function listReviews(): (ReviewDef & { sections: SectionWithSubtopics[] }
   }));
 }
 
-/** Admin edit: only label/marks are editable (category, review, and order
- * are fixed by the seed structure). */
+/** Admin edit: only label/marks are editable (category, scope, review, and
+ * order are fixed by the seed structure). */
 export function updateReviewSections(patch: { id: string; label: string; maxMarks: number }[]): void {
   const db = getDb();
   const update = db.prepare("UPDATE review_sections SET label = ?, max_marks = ? WHERE id = ?");
@@ -297,6 +305,7 @@ export function addReviewSection(
   reviewId: string,
   label: string,
   category: SectionCategory,
+  scope: SectionScope,
   maxMarks: number
 ): ReviewSectionDef {
   const db = getDb();
@@ -311,9 +320,9 @@ export function addReviewSection(
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_|_$/g, "");
   db.prepare(
-    "INSERT INTO review_sections (id, review_id, key, label, category, max_marks, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)"
-  ).run(id, reviewId, key, label, category, maxMarks, order_index);
-  return { id, reviewId, key, label, category, maxMarks, order: order_index };
+    "INSERT INTO review_sections (id, review_id, key, label, category, scope, max_marks, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(id, reviewId, key, label, category, scope, maxMarks, order_index);
+  return { id, reviewId, key, label, category, scope, maxMarks, order: order_index };
 }
 
 /** Admin removes a section (and its subtopics/ratings) - e.g. a feature
@@ -359,10 +368,11 @@ export function deleteSubtopic(id: string): void {
   tx();
 }
 
-// ---- Subtopic scoring (team-level, per-reviewer, averaged) ----
+// ---- Subtopic scoring (team-level or per-student, per-reviewer, averaged) ----
 
-/** Raw per-reviewer subtopic ratings for one team+review - used for
- * own-entry highlighting and to compute section scores. */
+/** Raw per-reviewer subtopic ratings for one team+review (every student's
+ * individual-scope ratings included) - used for own-entry highlighting and
+ * to compute section scores. */
 export function getSubtopicScoreEntries(teamId: string, reviewId: string): SubtopicScoreRow[] {
   return getDb()
     .prepare(
@@ -374,49 +384,66 @@ export function getSubtopicScoreEntries(teamId: string, reviewId: string): Subto
     .all(teamId, reviewId) as SubtopicScoreRow[];
 }
 
-/** Every section's computed score for one team+review: average band across
- * whichever subtopics have at least one rating (averaged across reviewers
- * first), then scaled to the section's max_marks. `score` stays null until
- * at least one subtopic under that section has a rating. */
-export function computeSectionScores(teamId: string, reviewId: string): SectionScoreRow[] {
-  const sections = getSectionsForReview(reviewId);
-  const entries = getSubtopicScoreEntries(teamId, reviewId);
-  return sections.map((section) => {
-    const subtopicIds = new Set(section.subtopics.map((s) => s.id));
-    const avgBySubtopic = new Map<string, number>();
-    for (const subId of subtopicIds) {
-      const subEntries = entries.filter((e) => e.subtopic_id === subId);
-      if (subEntries.length > 0) {
-        avgBySubtopic.set(
-          subId,
-          subEntries.reduce((sum, e) => sum + GRADE_BAND_VALUE[e.band], 0) / subEntries.length
-        );
-      }
+function scoreFromEntries(entries: SubtopicScoreRow[], subtopicIds: string[], maxMarks: number): {
+  score: number | null;
+  ratedSubtopics: number;
+  totalSubtopics: number;
+} {
+  const avgBySubtopic = new Map<string, number>();
+  for (const subId of subtopicIds) {
+    const subEntries = entries.filter((e) => e.subtopic_id === subId);
+    if (subEntries.length > 0) {
+      avgBySubtopic.set(
+        subId,
+        subEntries.reduce((sum, e) => sum + GRADE_BAND_VALUE[e.band], 0) / subEntries.length
+      );
     }
-    const ratedSubtopics = avgBySubtopic.size;
-    let score: number | null = null;
-    if (ratedSubtopics > 0) {
-      const avgOfAvgs = Array.from(avgBySubtopic.values()).reduce((a, b) => a + b, 0) / ratedSubtopics;
-      score = round2(section.maxMarks * (avgOfAvgs / 4));
-    }
-    return {
-      sectionId: section.id,
-      teamId,
-      reviewId,
-      score,
-      maxMarks: section.maxMarks,
-      ratedSubtopics,
-      totalSubtopics: subtopicIds.size,
-    } satisfies SectionScoreRow;
-  });
+  }
+  const ratedSubtopics = avgBySubtopic.size;
+  let score: number | null = null;
+  if (ratedSubtopics > 0) {
+    const avgOfAvgs = Array.from(avgBySubtopic.values()).reduce((a, b) => a + b, 0) / ratedSubtopics;
+    score = round2(maxMarks * (avgOfAvgs / 4));
+  }
+  return { score, ratedSubtopics, totalSubtopics: subtopicIds.length };
 }
 
-/** A team's rolled-up technical/non-technical/grand totals for one review -
- * only sections with at least one rated subtopic count toward "possible",
- * so an unstarted review reads as 0/0 rather than 0/100. */
-export function computeReviewTotal(teamId: string, reviewId: string): ReviewTotalRow {
+/** Every section's computed score for one team+review: 'team' scope
+ * sections get one row (studentId null); 'individual' scope sections get
+ * one row per student in `studentIds`. Each score is the average band
+ * across whichever subtopics have at least one rating (averaged across
+ * reviewers first), scaled to the section's max_marks. `score` stays null
+ * until at least one relevant subtopic has a rating. */
+export function computeSectionScores(teamId: string, reviewId: string, studentIds: string[]): SectionScoreRow[] {
   const sections = getSectionsForReview(reviewId);
-  const sectionScores = computeSectionScores(teamId, reviewId);
+  const entries = getSubtopicScoreEntries(teamId, reviewId);
+  const rows: SectionScoreRow[] = [];
+  for (const section of sections) {
+    const subtopicIds = section.subtopics.map((s) => s.id);
+    if (section.scope === "team") {
+      const teamEntries = entries.filter((e) => e.student_id === null);
+      const { score, ratedSubtopics, totalSubtopics } = scoreFromEntries(teamEntries, subtopicIds, section.maxMarks);
+      rows.push({ sectionId: section.id, teamId, studentId: null, reviewId, score, maxMarks: section.maxMarks, ratedSubtopics, totalSubtopics });
+    } else {
+      for (const studentId of studentIds) {
+        const studentEntries = entries.filter((e) => e.student_id === studentId);
+        const { score, ratedSubtopics, totalSubtopics } = scoreFromEntries(studentEntries, subtopicIds, section.maxMarks);
+        rows.push({ sectionId: section.id, teamId, studentId, reviewId, score, maxMarks: section.maxMarks, ratedSubtopics, totalSubtopics });
+      }
+    }
+  }
+  return rows;
+}
+
+/** One student's rolled-up technical/non-technical/grand totals for one
+ * review - 'team' scope sections contribute the same value to every
+ * student on the team; 'individual' scope sections contribute that
+ * student's own score. Only sections with at least one rated subtopic
+ * count toward "possible", so an unstarted review reads as 0/0 rather
+ * than 0/100. */
+export function computeReviewTotal(studentId: string, teamId: string, reviewId: string): ReviewTotalRow {
+  const sections = getSectionsForReview(reviewId);
+  const sectionScores = computeSectionScores(teamId, reviewId, [studentId]);
   const sectionById = new Map(sections.map((s) => [s.id, s]));
   let technicalEarned = 0;
   let technicalMax = 0;
@@ -425,6 +452,8 @@ export function computeReviewTotal(teamId: string, reviewId: string): ReviewTota
   for (const ss of sectionScores) {
     if (ss.score === null) continue;
     const section = sectionById.get(ss.sectionId)!;
+    const appliesToStudent = section.scope === "team" ? ss.studentId === null : ss.studentId === studentId;
+    if (!appliesToStudent) continue;
     if (section.category === "technical") {
       technicalEarned += ss.score;
       technicalMax += ss.maxMarks;
@@ -435,6 +464,7 @@ export function computeReviewTotal(teamId: string, reviewId: string): ReviewTota
   }
   return {
     teamId,
+    studentId,
     reviewId,
     technicalEarned: round2(technicalEarned),
     technicalMax: round2(technicalMax),
@@ -445,31 +475,30 @@ export function computeReviewTotal(teamId: string, reviewId: string): ReviewTota
   };
 }
 
-/** Upserts ONE reviewer's own 4-band rating of one subtopic for one team.
- * Set band to null to clear this reviewer's rating. Returns the raw entries
- * plus the recomputed score for the subtopic's section, so the UI can
+/** Upserts ONE reviewer's own 4-band rating of one subtopic, for one team
+ * (studentId null) or one specific student on that team (individual-scope
+ * sections). Set band to null to clear this reviewer's rating. Returns the
+ * raw entries plus every recomputed row for the subtopic's section (one
+ * row for team scope, one per student for individual scope), so the UI can
  * update optimistically without a full refetch. */
 export function upsertSubtopicScore(
   subtopicId: string,
   teamId: string,
+  studentId: string | null,
   reviewerId: string,
   band: GradeBand | null
-): { entries: SubtopicScoreRow[]; sectionScore: SectionScoreRow } {
+): { entries: SubtopicScoreRow[]; sectionScores: SectionScoreRow[] } {
   const db = getDb();
   const now = new Date().toISOString();
+  const id = `${subtopicId}:${teamId}:${studentId ?? "team"}:${reviewerId}`;
   if (band === null) {
-    db.prepare("DELETE FROM subtopic_scores WHERE subtopic_id = ? AND team_id = ? AND reviewer_id = ?").run(
-      subtopicId,
-      teamId,
-      reviewerId
-    );
+    db.prepare("DELETE FROM subtopic_scores WHERE id = ?").run(id);
   } else {
-    const id = `${subtopicId}:${teamId}:${reviewerId}`;
     db.prepare(
-      `INSERT INTO subtopic_scores (id, subtopic_id, team_id, reviewer_id, band, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(subtopic_id, team_id, reviewer_id) DO UPDATE SET band = excluded.band, updated_at = excluded.updated_at`
-    ).run(id, subtopicId, teamId, reviewerId, band, now);
+      `INSERT INTO subtopic_scores (id, subtopic_id, team_id, student_id, reviewer_id, band, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET band = excluded.band, updated_at = excluded.updated_at`
+    ).run(id, subtopicId, teamId, studentId, reviewerId, band, now);
   }
   const subtopic = db.prepare("SELECT section_id FROM subtopics WHERE id = ?").get(subtopicId) as
     | { section_id: string }
@@ -481,11 +510,14 @@ export function upsertSubtopicScore(
     : undefined;
   const reviewId = section?.review_id ?? "";
   const entries = getSubtopicScoreEntries(teamId, reviewId);
-  const sectionScore = computeSectionScores(teamId, reviewId).find((s) => s.sectionId === subtopic?.section_id)!;
-  return { entries, sectionScore };
+  const students = db.prepare("SELECT id FROM students WHERE team_id = ?").all(teamId) as { id: string }[];
+  const sectionScores = computeSectionScores(teamId, reviewId, students.map((s) => s.id)).filter(
+    (s) => s.sectionId === subtopic?.section_id
+  );
+  return { entries, sectionScores };
 }
 
-/** Class-wide computed section scores + review totals for every team - the
+/** Class-wide computed section scores + per-student review totals - the
  * shape Score/Review/Stats/Export all consume. */
 export function getScoresForClass(classId: string): {
   sectionScores: SectionScoreRow[];
@@ -497,9 +529,13 @@ export function getScoresForClass(classId: string): {
   const sectionScores: SectionScoreRow[] = [];
   const reviewTotals: ReviewTotalRow[] = [];
   for (const team of teams) {
+    const students = db.prepare("SELECT id FROM students WHERE team_id = ?").all(team.id) as { id: string }[];
+    const studentIds = students.map((s) => s.id);
     for (const review of reviews) {
-      sectionScores.push(...computeSectionScores(team.id, review.id));
-      reviewTotals.push(computeReviewTotal(team.id, review.id));
+      sectionScores.push(...computeSectionScores(team.id, review.id, studentIds));
+      for (const studentId of studentIds) {
+        reviewTotals.push(computeReviewTotal(studentId, team.id, review.id));
+      }
     }
   }
   return { sectionScores, reviewTotals };
@@ -508,7 +544,9 @@ export function getScoresForClass(classId: string): {
 // ---- Weak topics (replaces the old per-student Q&A log) ----
 
 /** A team's weakest-rated subtopics across every review scored so far -
- * anything averaging below "Meets" (band 3), worst first. Empty once the
+ * anything averaging below "Meets" (band 3), worst first. Pools ratings
+ * across every student on the team for individual-scope sections (a broad
+ * "where to probe" signal, not attributed to one person). Empty once the
  * team has no below-par ratings. */
 export function getWeakTopics(teamId: string, limit = 8): WeakTopicRow[] {
   const db = getDb();
