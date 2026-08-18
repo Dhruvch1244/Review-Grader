@@ -19,9 +19,9 @@
     </app-card-content>
   </app-card>
 
-  @if (overall().length > 0) {
+  @if (grandTotals().length > 0) {
     <div class="flex items-center justify-between">
-      <p class="text-sm text-muted-foreground">{{ overall().length }} students across {{ classCount() }} class(es)</p>
+      <p class="text-sm text-muted-foreground">{{ grandTotals().length }} teams across {{ classCount() }} class(es)</p>
       <div class="flex gap-2">
         <button appButton variant="outline" (click)="reset()">Clear</button>
         <button appButton (click)="downloadMerged()">Download master .xlsx</button>
@@ -35,19 +35,17 @@
             <tr>
               <th class="text-left px-3 py-2 font-medium">Class</th>
               <th class="text-left px-3 py-2 font-medium">Team</th>
-              <th class="text-left px-3 py-2 font-medium">Student</th>
-              <th class="text-right px-3 py-2 font-medium">Reviews scored</th>
-              <th class="text-right px-3 py-2 font-medium">Overall final score</th>
+              <th class="text-right px-3 py-2 font-medium">Grand total</th>
+              <th class="text-right px-3 py-2 font-medium">Percentage</th>
             </tr>
           </thead>
           <tbody>
-            @for (row of overall(); track row.Class + row.Team + row.Student) {
+            @for (row of grandTotals(); track row.Class + row.Team) {
               <tr class="border-t">
                 <td class="px-3 py-2">{{ row.Class }}</td>
                 <td class="px-3 py-2">{{ row.Team }}</td>
-                <td class="px-3 py-2">{{ row.Student }}</td>
-                <td class="px-3 py-2 text-right">{{ row.ReviewsScored }}/4</td>
-                <td class="px-3 py-2 text-right font-medium">{{ row.OverallFinalScore ?? '—' }}</td>
+                <td class="px-3 py-2 text-right">{{ row.GrandTotalEarned }} / {{ row.GrandTotalMax }}</td>
+                <td class="px-3 py-2 text-right font-medium">{{ row.Percentage !== null ? row.Percentage + '%' : '—' }}</td>
               </tr>
             }
           </tbody>

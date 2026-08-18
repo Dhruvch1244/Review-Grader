@@ -1,8 +1,7 @@
-export interface RawStudentScore {
+export interface RawTeamScore {
   classId: string;
   className: string;
   team: string;
-  student: string;
   raw: number;
 }
 
@@ -11,10 +10,10 @@ export interface ClassNormSummary {
   className: string;
   mean: number;
   stddev: number;
-  studentCount: number;
+  teamCount: number;
 }
 
-export interface StudentNormRow extends RawStudentScore {
+export interface TeamNormRow extends RawTeamScore {
   z: number;
   normalized: number;
 }
@@ -24,22 +23,22 @@ function round2(n: number): number {
 }
 
 /**
- * Cross-class fairness normalization: converts each student's raw overall
- * score into a z-score against their OWN class's mean/stddev, then rescales
- * to a T-score-like 0-100 band (mean 50, sd 10) so a "3.8" from a strict
- * class and a "4.3" from a lenient one become comparable.
+ * Cross-class fairness normalization: converts each team's raw overall
+ * percentage into a z-score against their OWN class's mean/stddev, then
+ * rescales to a T-score-like 0-100 band (mean 50, sd 10) so a team from a
+ * strict class and a team from a lenient one become comparable.
  */
 export function computeNormalization(
-  rows: RawStudentScore[]
-): { perClass: ClassNormSummary[]; students: StudentNormRow[] } {
-  const byClass = new Map<string, RawStudentScore[]>();
+  rows: RawTeamScore[]
+): { perClass: ClassNormSummary[]; teams: TeamNormRow[] } {
+  const byClass = new Map<string, RawTeamScore[]>();
   for (const r of rows) {
     if (!byClass.has(r.classId)) byClass.set(r.classId, []);
     byClass.get(r.classId)!.push(r);
   }
 
   const perClass: ClassNormSummary[] = [];
-  const students: StudentNormRow[] = [];
+  const teams: TeamNormRow[] = [];
 
   for (const [classId, list] of byClass) {
     const vals = list.map((s) => s.raw);
@@ -51,17 +50,17 @@ export function computeNormalization(
       className: list[0].className,
       mean: round2(mean),
       stddev: round2(stddev),
-      studentCount: vals.length,
+      teamCount: vals.length,
     });
     for (const s of list) {
       const z = stddev > 0 ? (s.raw - mean) / stddev : 0;
       const normalized = Math.max(0, Math.min(100, 50 + 10 * z));
-      students.push({ ...s, z: round2(z), normalized: round2(normalized) });
+      teams.push({ ...s, z: round2(z), normalized: round2(normalized) });
     }
   }
 
   perClass.sort((a, b) => a.className.localeCompare(b.className));
-  students.sort((a, b) => b.normalized - a.normalized);
+  teams.sort((a, b) => b.normalized - a.normalized);
 
-  return { perClass, students };
+  return { perClass, teams };
 }

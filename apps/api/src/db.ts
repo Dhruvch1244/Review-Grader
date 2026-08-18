@@ -3,8 +3,7 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import { randomUUID } from "crypto";
-import { REVIEWS, CRITERIA } from "./rubric-seed";
-import { DEFAULT_DIMENSIONS } from "./dimensions-seed";
+import { REVIEWS, REVIEW_SECTIONS } from "./trading-system-seed";
 import { generateIndianNames } from "./indian-names";
 
 const DEFAULT_CLASS_COUNT = 6;
@@ -49,83 +48,63 @@ CREATE TABLE IF NOT EXISTS reviews (
   sprint_range TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS criteria (
+-- Replaces the old 1-5 rubric "criteria": a marks-based section of a review
+-- (e.g. "Database Design and Modeling" - 10 marks), grouped technical or
+-- non-technical. Admin-editable label/marks; not scored directly - see
+-- subtopics below.
+CREATE TABLE IF NOT EXISTS review_sections (
   id TEXT PRIMARY KEY,
   review_id TEXT NOT NULL REFERENCES reviews(id),
-  category TEXT NOT NULL,
-  text TEXT NOT NULL,
+  key TEXT NOT NULL,
+  label TEXT NOT NULL,
+  category TEXT NOT NULL, -- 'technical' | 'non_technical'
+  max_marks REAL NOT NULL,
   order_index INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS class_reviewers (
+-- A reviewer-addable breakdown of a section (e.g. under "Database Design":
+-- "Schema normalization", "Indexing strategy") - shared across the whole
+-- review, not per-team, so every team is judged against the same rubric
+-- once someone adds it.
+CREATE TABLE IF NOT EXISTS subtopics (
   id TEXT PRIMARY KEY,
-  class_id TEXT NOT NULL REFERENCES classes(id),
+  section_id TEXT NOT NULL REFERENCES review_sections(id),
+  label TEXT NOT NULL,
+  order_index INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+-- One reviewer's own 4-band rating of one subtopic FOR ONE TEAM (marks are
+-- team-level, shared across all its members - the project is a team
+-- deliverable). Averaged across whichever reviewers have rated a subtopic,
+-- then averaged across a section's rated subtopics and scaled to the
+-- section's max_marks (see computeSectionScores).
+CREATE TABLE IF NOT EXISTS subtopic_scores (
+  id TEXT PRIMARY KEY,
+  subtopic_id TEXT NOT NULL REFERENCES subtopics(id),
+  team_id TEXT NOT NULL REFERENCES teams(id),
+  reviewer_id TEXT NOT NULL,
+  band TEXT NOT NULL, -- 'below' | 'partial' | 'meets' | 'exceeds' (1-4)
+  updated_at TEXT NOT NULL,
+  UNIQUE(subtopic_id, team_id, reviewer_id)
+);
+
+-- Global reviewer roster (not per-class) - admin adds a name once and it's
+-- usable across every class.
+CREATE TABLE IF NOT EXISTS reviewers (
+  id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   order_index INTEGER NOT NULL
 );
 
--- A panel typically has 2-3 reviewers scoring the same team/student
--- independently - each reviewer's score is its own row here, and the
--- team's displayed baseline is the average across whichever reviewers
--- have scored a given criterion (see getTeamScoresByCriterion).
-CREATE TABLE IF NOT EXISTS team_scores (
+-- A reviewer opting in to score a specific class's specific review. One
+-- reviewer can belong to multiple (class, review) pairs at once.
+CREATE TABLE IF NOT EXISTS review_reviewers (
   id TEXT PRIMARY KEY,
-  team_id TEXT NOT NULL,
-  review_id TEXT NOT NULL,
-  criterion_id TEXT NOT NULL,
-  reviewer_id TEXT NOT NULL,
-  score INTEGER,
-  notes TEXT,
-  updated_at TEXT NOT NULL,
-  UNIQUE(team_id, review_id, criterion_id, reviewer_id)
-);
-
-CREATE TABLE IF NOT EXISTS individual_scores (
-  id TEXT PRIMARY KEY,
-  student_id TEXT NOT NULL,
-  review_id TEXT NOT NULL,
-  delta REAL,
-  notes TEXT,
-  grace REAL,
-  updated_at TEXT NOT NULL,
-  UNIQUE(student_id, review_id)
-);
-
-CREATE TABLE IF NOT EXISTS dimensions (
-  id TEXT PRIMARY KEY,
-  key TEXT NOT NULL UNIQUE,
-  label TEXT NOT NULL,
-  weight_percent REAL NOT NULL,
-  order_index INTEGER NOT NULL
-);
-
--- Same per-reviewer shape as team_scores - each reviewer grades a
--- dimension independently, averaged across reviewers per dimension, then
--- weight-averaged across dimensions (see upsertDimensionScore).
-CREATE TABLE IF NOT EXISTS dimension_scores (
-  id TEXT PRIMARY KEY,
-  student_id TEXT NOT NULL,
-  review_id TEXT NOT NULL,
-  dimension_id TEXT NOT NULL,
-  reviewer_id TEXT NOT NULL,
-  score INTEGER NOT NULL,
-  updated_at TEXT NOT NULL,
-  UNIQUE(student_id, review_id, dimension_id, reviewer_id)
-);
-
--- Not averaged like scores above - each question is attributed to
--- whichever reviewer logged it (reviewer_id), so the panel can see who
--- asked what while multiple reviewers add to the same shared list.
-CREATE TABLE IF NOT EXISTS asked_questions (
-  id TEXT PRIMARY KEY,
-  student_id TEXT NOT NULL,
-  review_id TEXT NOT NULL,
-  reviewer_id TEXT,
-  text TEXT NOT NULL,
-  rating TEXT,
-  order_index INTEGER NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  class_id TEXT NOT NULL REFERENCES classes(id),
+  review_id TEXT NOT NULL REFERENCES reviews(id),
+  reviewer_id TEXT NOT NULL REFERENCES reviewers(id),
+  UNIQUE(class_id, review_id, reviewer_id)
 );
 
 CREATE TABLE IF NOT EXISTS review_sessions (
@@ -135,37 +114,24 @@ CREATE TABLE IF NOT EXISTS review_sessions (
   phase TEXT NOT NULL DEFAULT 'idle',
   timer_started_at TEXT,
   timer_duration_seconds INTEGER NOT NULL DEFAULT 1200,
-  current_student_index INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL,
   UNIQUE(team_id, review_id)
 );
 `;
 
-function seedRubric(db: Database.Database) {
+function seedReviewSections(db: Database.Database) {
   const count = (db.prepare("SELECT COUNT(*) as c FROM reviews").get() as { c: number }).c;
   if (count > 0) return;
   const insertReview = db.prepare(
     "INSERT INTO reviews (id, number, label, sprint_range) VALUES (?, ?, ?, ?)"
   );
-  const insertCriterion = db.prepare(
-    "INSERT INTO criteria (id, review_id, category, text, order_index) VALUES (?, ?, ?, ?, ?)"
+  const insertSection = db.prepare(
+    "INSERT INTO review_sections (id, review_id, key, label, category, max_marks, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)"
   );
   const tx = db.transaction(() => {
     for (const r of REVIEWS) insertReview.run(r.id, r.number, r.label, r.sprintRange);
-    for (const c of CRITERIA) insertCriterion.run(c.id, c.reviewId, c.category, c.text, c.order);
-  });
-  tx();
-}
-
-function seedDimensions(db: Database.Database) {
-  const count = (db.prepare("SELECT COUNT(*) as c FROM dimensions").get() as { c: number }).c;
-  if (count > 0) return;
-  const insertDimension = db.prepare(
-    "INSERT INTO dimensions (id, key, label, weight_percent, order_index) VALUES (?, ?, ?, ?, ?)"
-  );
-  const tx = db.transaction(() => {
-    for (const d of DEFAULT_DIMENSIONS) {
-      insertDimension.run(randomUUID(), d.key, d.label, d.weightPercent, d.order);
+    for (const s of REVIEW_SECTIONS) {
+      insertSection.run(s.id, s.reviewId, s.key, s.label, s.category, s.maxMarks, s.order);
     }
   });
   tx();
@@ -209,8 +175,7 @@ function createConnection() {
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
   db.exec(SCHEMA);
-  seedRubric(db);
-  seedDimensions(db);
+  seedReviewSections(db);
   seedDefaultClasses(db);
   return db;
 }

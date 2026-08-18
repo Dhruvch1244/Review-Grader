@@ -1,0 +1,18 @@
+@if (weakTopics().length > 0) {
+  <div class="rounded-lg border border-destructive/20 bg-destructive/5 p-3">
+    <p class="text-xs font-medium text-destructive mb-2">Weak areas to probe</p>
+    <ul class="space-y-1.5">
+      @for (w of weakTopics(); track w.subtopicId) {
+        <li class="text-xs flex items-start gap-1.5">
+          <app-badge variant="outline" class="h-4 px-1 text-[9px] uppercase tracking-wide shrink-0 mt-0.5">
+            {{ w.reviewLabel }}
+          </app-badge>
+          <span>
+            <strong>{{ w.subtopicLabel }}</strong>
+            <span class="text-muted-foreground"> ({{ w.sectionLabel }}) - avg {{ w.avgBand }}/4</span>
+          </span>
+        </li>
+      }
+    </ul>
+  </div>
+}

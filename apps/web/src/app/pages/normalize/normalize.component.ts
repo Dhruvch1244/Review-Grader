@@ -5,7 +5,7 @@ import { LucideInfo } from '@lucide/angular';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { DarkModeService } from '../../core/services/dark-mode.service';
 import { CHROME, sequentialBlue } from '../../core/chart-colors';
-import type { ClassNormSummary, StudentNormRow } from '../../core/models/types';
+import type { ClassNormSummary, TeamNormRow } from '../../core/models/types';
 import { CardComponent, CardContentComponent, CardHeaderComponent, CardTitleComponent } from '../../ui/card.component';
 import { AlertComponent, AlertDescriptionComponent, AlertTitleComponent } from '../../ui/alert.component';
 
@@ -29,10 +29,10 @@ export class NormalizeComponent {
   private api = inject(ApiClientService);
   private darkMode = inject(DarkModeService);
 
-  data = signal<{ perClass: ClassNormSummary[]; students: StudentNormRow[] } | null>(null);
+  data = signal<{ perClass: ClassNormSummary[]; teams: TeamNormRow[] } | null>(null);
 
   constructor() {
-    this.api.apiGet<{ perClass: ClassNormSummary[]; students: StudentNormRow[] }>('/api/normalize').then((d) => {
+    this.api.apiGet<{ perClass: ClassNormSummary[]; teams: TeamNormRow[] }>('/api/normalize').then((d) => {
       if (d) this.data.set(d);
     });
   }
@@ -71,7 +71,7 @@ export class NormalizeComponent {
     maintainAspectRatio: false,
     scales: {
       x: this.axisOptions(),
-      y: { ...this.axisOptions(), min: 0, max: 6 },
+      y: { ...this.axisOptions(), min: 0, max: 100 },
     },
     plugins: {
       legend: { display: false },

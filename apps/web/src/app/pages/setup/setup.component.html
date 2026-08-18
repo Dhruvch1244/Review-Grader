@@ -7,9 +7,14 @@
         teams and members as your real roster comes in.
       </p>
     </div>
-    <button appButton variant="outline" class="text-destructive hover:text-destructive shrink-0" (click)="resetAll()">
-      <svg lucideAlertTriangle class="size-4"></svg> Reset all data
-    </button>
+    <div class="flex items-center gap-2 shrink-0">
+      <a routerLink="/reviewers">
+        <button appButton variant="outline">Manage reviewers</button>
+      </a>
+      <button appButton variant="outline" class="text-destructive hover:text-destructive" (click)="resetAll()">
+        <svg lucideAlertTriangle class="size-4"></svg> Reset all data
+      </button>
+    </div>
   </div>
 
   <div class="space-y-3">
@@ -56,7 +61,6 @@
         @if (expanded()[c.id]; as data) {
           <app-card-content class="border-t pt-5 pb-5 space-y-5">
             <app-class-settings [classData]="data" (update)="setClassData(c.id, $event)" />
-            <app-class-reviewers [classData]="data" (update)="setClassData(c.id, $event)" />
             <app-bulk-import [classData]="data" (update)="setClassData(c.id, $event)" />
             <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               @for (team of data.teams; track team.id) {

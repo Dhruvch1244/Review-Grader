@@ -1,58 +1,28 @@
 import { randomUUID } from "crypto";
 import { getDb } from "./db";
+import { GRADE_BAND_VALUE } from "./types";
 import type {
   ClassRow,
   TeamRow,
   StudentRow,
   ClassData,
   TeamWithStudents,
-  TeamScoreRow,
-  TeamScoreEntryRow,
-  IndividualScoreRow,
   ReviewDef,
-  CriterionDef,
-  Category,
-  DimensionDef,
-  DimensionScoreRow,
-  AskedQuestionRow,
+  ReviewSectionDef,
+  SectionCategory,
+  SubtopicDef,
+  SubtopicScoreRow,
+  ReviewerRow,
+  ReviewReviewerRow,
+  SectionScoreRow,
+  ReviewTotalRow,
+  WeakTopicRow,
   GradeBand,
   ReviewSessionRow,
-  ClassReviewerRow,
 } from "./types";
 
-// ---- Class reviewers (2-3 per panel, typical) ----
-
-export function listClassReviewers(classId: string): ClassReviewerRow[] {
-  return getDb()
-    .prepare("SELECT * FROM class_reviewers WHERE class_id = ? ORDER BY order_index")
-    .all(classId) as ClassReviewerRow[];
-}
-
-export function addClassReviewer(classId: string, name: string): ClassReviewerRow {
-  const db = getDb();
-  const maxOrder =
-    (
-      db.prepare("SELECT MAX(order_index) as m FROM class_reviewers WHERE class_id = ?").get(classId) as {
-        m: number | null;
-      }
-    ).m ?? -1;
-  const id = randomUUID();
-  const order_index = maxOrder + 1;
-  db.prepare("INSERT INTO class_reviewers (id, class_id, name, order_index) VALUES (?, ?, ?, ?)").run(
-    id,
-    classId,
-    name,
-    order_index
-  );
-  return { id, class_id: classId, name, order_index };
-}
-
-export function renameClassReviewer(id: string, name: string): void {
-  getDb().prepare("UPDATE class_reviewers SET name = ? WHERE id = ?").run(name, id);
-}
-
-export function deleteClassReviewer(id: string): void {
-  getDb().prepare("DELETE FROM class_reviewers WHERE id = ?").run(id);
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 export function listClasses(): ClassRow[] {
@@ -75,7 +45,7 @@ export function getClassData(classId: string): ClassData | null {
     ...t,
     students: students.filter((s) => s.team_id === t.id),
   }));
-  return { class: cls, teams: teamsWithStudents, reviewers: listClassReviewers(classId) };
+  return { class: cls, teams: teamsWithStudents };
 }
 
 export function renameStudent(studentId: string, name: string): void {
@@ -156,14 +126,8 @@ export function addTeam(classId: string): TeamWithStudents {
 export function deleteTeam(teamId: string): void {
   const db = getDb();
   const tx = db.transaction(() => {
-    const students = db.prepare("SELECT id FROM students WHERE team_id = ?").all(teamId) as { id: string }[];
-    for (const s of students) {
-      db.prepare("DELETE FROM individual_scores WHERE student_id = ?").run(s.id);
-      db.prepare("DELETE FROM dimension_scores WHERE student_id = ?").run(s.id);
-      db.prepare("DELETE FROM asked_questions WHERE student_id = ?").run(s.id);
-    }
     db.prepare("DELETE FROM students WHERE team_id = ?").run(teamId);
-    db.prepare("DELETE FROM team_scores WHERE team_id = ?").run(teamId);
+    db.prepare("DELETE FROM subtopic_scores WHERE team_id = ?").run(teamId);
     db.prepare("DELETE FROM review_sessions WHERE team_id = ?").run(teamId);
     db.prepare("DELETE FROM teams WHERE id = ?").run(teamId);
   });
@@ -189,19 +153,117 @@ export function addStudent(teamId: string, name?: string): StudentRow {
 }
 
 export function deleteStudent(studentId: string): void {
+  getDb().prepare("DELETE FROM students WHERE id = ?").run(studentId);
+}
+
+// ---- Global reviewer roster ----
+
+export function listReviewers(): ReviewerRow[] {
+  return getDb().prepare("SELECT * FROM reviewers ORDER BY order_index").all() as ReviewerRow[];
+}
+
+export function addReviewer(name: string): ReviewerRow {
+  const db = getDb();
+  const maxOrder =
+    (db.prepare("SELECT MAX(order_index) as m FROM reviewers").get() as { m: number | null }).m ?? -1;
+  const id = randomUUID();
+  const order_index = maxOrder + 1;
+  db.prepare("INSERT INTO reviewers (id, name, order_index) VALUES (?, ?, ?)").run(id, name, order_index);
+  return { id, name, order_index };
+}
+
+export function renameReviewer(id: string, name: string): void {
+  getDb().prepare("UPDATE reviewers SET name = ? WHERE id = ?").run(name, id);
+}
+
+export function deleteReviewer(id: string): void {
   const db = getDb();
   const tx = db.transaction(() => {
-    db.prepare("DELETE FROM individual_scores WHERE student_id = ?").run(studentId);
-    db.prepare("DELETE FROM dimension_scores WHERE student_id = ?").run(studentId);
-    db.prepare("DELETE FROM asked_questions WHERE student_id = ?").run(studentId);
-    db.prepare("DELETE FROM students WHERE id = ?").run(studentId);
+    db.prepare("DELETE FROM subtopic_scores WHERE reviewer_id = ?").run(id);
+    db.prepare("DELETE FROM review_reviewers WHERE reviewer_id = ?").run(id);
+    db.prepare("DELETE FROM reviewers WHERE id = ?").run(id);
   });
   tx();
 }
 
-// ---- Rubric / reviews ----
+// ---- Per-(class, review) reviewer self-selection ----
 
-export function listReviews(): (ReviewDef & { criteria: CriterionDef[] })[] {
+export function listReviewReviewers(classId: string): ReviewReviewerRow[] {
+  return getDb()
+    .prepare("SELECT * FROM review_reviewers WHERE class_id = ?")
+    .all(classId) as ReviewReviewerRow[];
+}
+
+export function setReviewReviewerMembership(
+  classId: string,
+  reviewId: string,
+  reviewerId: string,
+  member: boolean
+): void {
+  const db = getDb();
+  if (member) {
+    db.prepare(
+      "INSERT OR IGNORE INTO review_reviewers (id, class_id, review_id, reviewer_id) VALUES (?, ?, ?, ?)"
+    ).run(randomUUID(), classId, reviewId, reviewerId);
+  } else {
+    db.prepare("DELETE FROM review_reviewers WHERE class_id = ? AND review_id = ? AND reviewer_id = ?").run(
+      classId,
+      reviewId,
+      reviewerId
+    );
+  }
+}
+
+// ---- Reviews / sections / subtopics ----
+
+type SectionWithSubtopics = ReviewSectionDef & { subtopics: SubtopicDef[] };
+
+function getSectionsForReview(reviewId: string): SectionWithSubtopics[] {
+  const db = getDb();
+  const sections = db
+    .prepare("SELECT * FROM review_sections WHERE review_id = ? ORDER BY order_index")
+    .all(reviewId) as {
+    id: string;
+    review_id: string;
+    key: string;
+    label: string;
+    category: SectionCategory;
+    max_marks: number;
+    order_index: number;
+  }[];
+  const subtopics = db
+    .prepare(
+      `SELECT sub.* FROM subtopics sub JOIN review_sections rs ON sub.section_id = rs.id
+       WHERE rs.review_id = ? ORDER BY sub.order_index`
+    )
+    .all(reviewId) as {
+    id: string;
+    section_id: string;
+    label: string;
+    order_index: number;
+    created_at: string;
+  }[];
+  return sections.map((s) => ({
+    id: s.id,
+    reviewId: s.review_id,
+    key: s.key,
+    label: s.label,
+    category: s.category,
+    maxMarks: s.max_marks,
+    order: s.order_index,
+    subtopics: subtopics
+      .filter((sub) => sub.section_id === s.id)
+      .map((sub) => ({
+        id: sub.id,
+        sectionId: sub.section_id,
+        label: sub.label,
+        order: sub.order_index,
+        createdAt: sub.created_at,
+      })),
+  }));
+}
+
+export function listReviews(): (ReviewDef & { sections: SectionWithSubtopics[] })[] {
   const db = getDb();
   const reviews = db.prepare("SELECT * FROM reviews ORDER BY number").all() as {
     id: string;
@@ -209,320 +271,252 @@ export function listReviews(): (ReviewDef & { criteria: CriterionDef[] })[] {
     label: string;
     sprint_range: string;
   }[];
-  const criteria = db.prepare("SELECT * FROM criteria ORDER BY review_id, order_index").all() as {
-    id: string;
-    review_id: string;
-    category: Category;
-    text: string;
-    order_index: number;
-  }[];
   return reviews.map((r) => ({
     id: r.id,
     number: r.number,
     label: r.label,
     sprintRange: r.sprint_range,
-    criteria: criteria
-      .filter((c) => c.review_id === r.id)
-      .map((c) => ({
-        id: c.id,
-        reviewId: c.review_id,
-        category: c.category,
-        text: c.text,
-        order: c.order_index,
-      })),
+    sections: getSectionsForReview(r.id),
   }));
 }
 
-// ---- Scoring ----
-
-/** Upserts ONE reviewer's own score for a criterion - the team's displayed
- * baseline is the average across every reviewer who has scored it (see
- * getTeamScoresByCriterion), not a single shared value. */
-export function upsertTeamScore(input: {
-  teamId: string;
-  reviewId: string;
-  criterionId: string;
-  reviewerId: string;
-  score: number | null;
-  notes: string | null;
-}): TeamScoreEntryRow {
+/** Admin edit: only label/marks are editable (category, review, and order
+ * are fixed by the seed structure). */
+export function updateReviewSections(patch: { id: string; label: string; maxMarks: number }[]): void {
   const db = getDb();
-  const id = `${input.teamId}:${input.reviewId}:${input.criterionId}:${input.reviewerId}`;
-  const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO team_scores (id, team_id, review_id, criterion_id, reviewer_id, score, notes, updated_at)
-     VALUES (@id, @teamId, @reviewId, @criterionId, @reviewerId, @score, @notes, @now)
-     ON CONFLICT(team_id, review_id, criterion_id, reviewer_id)
-     DO UPDATE SET score = @score, notes = @notes, updated_at = @now`
-  ).run({ id, ...input, now });
-  return db.prepare("SELECT * FROM team_scores WHERE id = ?").get(id) as TeamScoreEntryRow;
-}
-
-/** Raw per-reviewer rows for one team+review - used only for own-entry
- * highlighting in the Score/Review UI, never for stats/export. */
-export function getTeamScoreEntries(teamId: string, reviewId: string): TeamScoreEntryRow[] {
-  return getDb()
-    .prepare("SELECT * FROM team_scores WHERE team_id = ? AND review_id = ?")
-    .all(teamId, reviewId) as TeamScoreEntryRow[];
-}
-
-export function upsertIndividualScore(input: {
-  studentId: string;
-  reviewId: string;
-  delta: number | null;
-  notes: string | null;
-}): IndividualScoreRow {
-  const db = getDb();
-  const id = `${input.studentId}:${input.reviewId}`;
-  const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO individual_scores (id, student_id, review_id, delta, notes, updated_at)
-     VALUES (@id, @studentId, @reviewId, @delta, @notes, @now)
-     ON CONFLICT(student_id, review_id)
-     DO UPDATE SET delta = @delta, notes = @notes, updated_at = @now`
-  ).run({ id, ...input, now });
-  return db.prepare("SELECT * FROM individual_scores WHERE id = ?").get(id) as IndividualScoreRow;
-}
-
-/** The team's averaged baseline per criterion - one row per criterion that
- * at least one reviewer has scored, with `score` the average across
- * however many reviewers scored it. */
-export function getTeamScoresByCriterion(teamId: string, reviewId: string): Record<string, TeamScoreRow> {
-  const db = getDb();
-  const rows = db
-    .prepare(
-      `SELECT criterion_id, AVG(score) as avgScore, COUNT(score) as raterCount, MAX(updated_at) as updatedAt
-       FROM team_scores WHERE team_id = ? AND review_id = ? AND score IS NOT NULL
-       GROUP BY criterion_id`
-    )
-    .all(teamId, reviewId) as { criterion_id: string; avgScore: number; raterCount: number; updatedAt: string }[];
-  return Object.fromEntries(
-    rows.map((r) => [
-      r.criterion_id,
-      {
-        id: `${teamId}:${reviewId}:${r.criterion_id}`,
-        team_id: teamId,
-        review_id: reviewId,
-        criterion_id: r.criterion_id,
-        score: Math.round(r.avgScore * 100) / 100,
-        notes: null,
-        updated_at: r.updatedAt,
-        raterCount: r.raterCount,
-      } satisfies TeamScoreRow,
-    ])
-  );
-}
-
-export function upsertGrace(studentId: string, reviewId: string, grace: number | null): IndividualScoreRow {
-  const db = getDb();
-  const id = `${studentId}:${reviewId}`;
-  const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO individual_scores (id, student_id, review_id, grace, updated_at)
-     VALUES (@id, @studentId, @reviewId, @grace, @now)
-     ON CONFLICT(student_id, review_id) DO UPDATE SET grace = @grace, updated_at = @now`
-  ).run({ id, studentId, reviewId, grace, now });
-  return db.prepare("SELECT * FROM individual_scores WHERE id = ?").get(id) as IndividualScoreRow;
-}
-
-/** Class-wide averaged team scores (see getTeamScoresByCriterion) plus raw
- * individual scores - the shape Score/Review/Stats/Export all expect. */
-export function getScoresForClass(classId: string): {
-  teamScores: TeamScoreRow[];
-  individualScores: IndividualScoreRow[];
-} {
-  const db = getDb();
-  const grouped = db
-    .prepare(
-      `SELECT ts.team_id, ts.review_id, ts.criterion_id, AVG(ts.score) as avgScore,
-              COUNT(ts.score) as raterCount, MAX(ts.updated_at) as updatedAt
-       FROM team_scores ts JOIN teams t ON ts.team_id = t.id
-       WHERE t.class_id = ? AND ts.score IS NOT NULL
-       GROUP BY ts.team_id, ts.review_id, ts.criterion_id`
-    )
-    .all(classId) as {
-    team_id: string;
-    review_id: string;
-    criterion_id: string;
-    avgScore: number;
-    raterCount: number;
-    updatedAt: string;
-  }[];
-  const teamScores: TeamScoreRow[] = grouped.map((r) => ({
-    id: `${r.team_id}:${r.review_id}:${r.criterion_id}`,
-    team_id: r.team_id,
-    review_id: r.review_id,
-    criterion_id: r.criterion_id,
-    score: Math.round(r.avgScore * 100) / 100,
-    notes: null,
-    updated_at: r.updatedAt,
-    raterCount: r.raterCount,
-  }));
-  const individualScores = db
-    .prepare(
-      `SELECT ix.* FROM individual_scores ix
-       JOIN students s ON ix.student_id = s.id
-       JOIN teams t ON s.team_id = t.id
-       WHERE t.class_id = ?`
-    )
-    .all(classId) as IndividualScoreRow[];
-  return { teamScores, individualScores };
-}
-
-// ---- Dimensions (editable weights) + per-student dimension scores ----
-
-export function listDimensions(): DimensionDef[] {
-  const db = getDb();
-  const rows = db.prepare("SELECT * FROM dimensions ORDER BY order_index").all() as {
-    id: string;
-    key: string;
-    label: string;
-    weight_percent: number;
-    order_index: number;
-  }[];
-  return rows.map((r) => ({ id: r.id, key: r.key, label: r.label, weightPercent: r.weight_percent, order: r.order_index }));
-}
-
-/** Throws if the new weights don't sum to ~100 (within floating-point slop). */
-export function updateDimensionWeights(weights: { id: string; weightPercent: number }[]): DimensionDef[] {
-  const total = weights.reduce((sum, w) => sum + w.weightPercent, 0);
-  if (Math.abs(total - 100) > 0.5) {
-    throw new Error(`Dimension weights must sum to 100 (got ${total})`);
-  }
-  const db = getDb();
-  const update = db.prepare("UPDATE dimensions SET weight_percent = ? WHERE id = ?");
+  const update = db.prepare("UPDATE review_sections SET label = ?, max_marks = ? WHERE id = ?");
   const tx = db.transaction(() => {
-    for (const w of weights) update.run(w.weightPercent, w.id);
+    for (const p of patch) update.run(p.label, p.maxMarks, p.id);
   });
   tx();
-  return listDimensions();
 }
 
-export function getDimensionScores(studentId: string, reviewId: string): DimensionScoreRow[] {
-  return getDb()
-    .prepare("SELECT * FROM dimension_scores WHERE student_id = ? AND review_id = ?")
-    .all(studentId, reviewId) as DimensionScoreRow[];
-}
-
-/**
- * Upserts ONE reviewer's own grade for one dimension (a panel typically has
- * 2-3 reviewers grading independently). The delta is computed in two
- * averaging passes: first, average across whichever reviewers have graded
- * each dimension; then weight-average those per-dimension averages across
- * dimensions, re-normalizing weights among just the dimensions that have
- * at least one grade so far - centered on 3 ("meets") so it nudges the
- * team baseline up or down the same way the old question-rating delta did.
- * Set score to null to clear this reviewer's grade for a dimension.
- */
-export function upsertDimensionScore(
-  studentId: string,
-  reviewId: string,
-  dimensionId: string,
-  reviewerId: string,
-  score: number | null
-): { delta: number | null; scores: DimensionScoreRow[] } {
-  const db = getDb();
-  const now = new Date().toISOString();
-  if (score === null) {
-    db.prepare(
-      "DELETE FROM dimension_scores WHERE student_id = ? AND review_id = ? AND dimension_id = ? AND reviewer_id = ?"
-    ).run(studentId, reviewId, dimensionId, reviewerId);
-  } else {
-    const id = `${studentId}:${reviewId}:${dimensionId}:${reviewerId}`;
-    db.prepare(
-      `INSERT INTO dimension_scores (id, student_id, review_id, dimension_id, reviewer_id, score, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(student_id, review_id, dimension_id, reviewer_id) DO UPDATE SET score = excluded.score, updated_at = excluded.updated_at`
-    ).run(id, studentId, reviewId, dimensionId, reviewerId, score, now);
-  }
-  const scores = getDimensionScores(studentId, reviewId);
-  let delta: number | null = null;
-  if (scores.length > 0) {
-    const dimensions = listDimensions();
-    const avgByDimension = new Map<string, number>();
-    for (const d of dimensions) {
-      const dimScores = scores.filter((s) => s.dimension_id === d.id);
-      if (dimScores.length > 0) {
-        avgByDimension.set(d.id, dimScores.reduce((sum, s) => sum + s.score, 0) / dimScores.length);
-      }
-    }
-    const relevant = dimensions.filter((d) => avgByDimension.has(d.id));
-    const totalWeight = relevant.reduce((sum, d) => sum + d.weightPercent, 0) || 1;
-    const weightedAvg = relevant.reduce(
-      (sum, d) => sum + (d.weightPercent / totalWeight) * avgByDimension.get(d.id)!,
-      0
-    );
-    delta = Math.round((weightedAvg - 3) * 100) / 100;
-  }
-  const existingNotes =
-    (
-      db.prepare("SELECT notes FROM individual_scores WHERE student_id = ? AND review_id = ?").get(
-        studentId,
-        reviewId
-      ) as { notes: string | null } | undefined
-    )?.notes ?? null;
-  upsertIndividualScore({ studentId, reviewId, delta, notes: existingNotes });
-  return { delta, scores };
-}
-
-// ---- Asked questions (free-form log of what was actually asked) ----
-
-export function getAskedQuestions(studentId: string, reviewId: string): AskedQuestionRow[] {
-  return getDb()
-    .prepare("SELECT * FROM asked_questions WHERE student_id = ? AND review_id = ? ORDER BY order_index")
-    .all(studentId, reviewId) as AskedQuestionRow[];
-}
-
-export function addAskedQuestion(
-  studentId: string,
-  reviewId: string,
-  reviewerId: string | null,
-  text: string
-): AskedQuestionRow {
+export function addSubtopic(sectionId: string, label: string): SubtopicDef {
   const db = getDb();
   const maxOrder =
-    (
-      db
-        .prepare("SELECT MAX(order_index) as m FROM asked_questions WHERE student_id = ? AND review_id = ?")
-        .get(studentId, reviewId) as { m: number | null }
-    ).m ?? -1;
+    (db.prepare("SELECT MAX(order_index) as m FROM subtopics WHERE section_id = ?").get(sectionId) as {
+      m: number | null;
+    }).m ?? -1;
   const id = randomUUID();
   const now = new Date().toISOString();
-  const order = maxOrder + 1;
+  const order_index = maxOrder + 1;
   db.prepare(
-    `INSERT INTO asked_questions (id, student_id, review_id, reviewer_id, text, rating, order_index, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)`
-  ).run(id, studentId, reviewId, reviewerId, text, order, now, now);
+    "INSERT INTO subtopics (id, section_id, label, order_index, created_at) VALUES (?, ?, ?, ?, ?)"
+  ).run(id, sectionId, label, order_index, now);
+  return { id, sectionId, label, order: order_index, createdAt: now };
+}
+
+export function renameSubtopic(id: string, label: string): void {
+  getDb().prepare("UPDATE subtopics SET label = ? WHERE id = ?").run(label, id);
+}
+
+export function deleteSubtopic(id: string): void {
+  const db = getDb();
+  const tx = db.transaction(() => {
+    db.prepare("DELETE FROM subtopic_scores WHERE subtopic_id = ?").run(id);
+    db.prepare("DELETE FROM subtopics WHERE id = ?").run(id);
+  });
+  tx();
+}
+
+// ---- Subtopic scoring (team-level, per-reviewer, averaged) ----
+
+/** Raw per-reviewer subtopic ratings for one team+review - used for
+ * own-entry highlighting and to compute section scores. */
+export function getSubtopicScoreEntries(teamId: string, reviewId: string): SubtopicScoreRow[] {
+  return getDb()
+    .prepare(
+      `SELECT ss.* FROM subtopic_scores ss
+       JOIN subtopics sub ON ss.subtopic_id = sub.id
+       JOIN review_sections rs ON sub.section_id = rs.id
+       WHERE ss.team_id = ? AND rs.review_id = ?`
+    )
+    .all(teamId, reviewId) as SubtopicScoreRow[];
+}
+
+/** Every section's computed score for one team+review: average band across
+ * whichever subtopics have at least one rating (averaged across reviewers
+ * first), then scaled to the section's max_marks. `score` stays null until
+ * at least one subtopic under that section has a rating. */
+export function computeSectionScores(teamId: string, reviewId: string): SectionScoreRow[] {
+  const sections = getSectionsForReview(reviewId);
+  const entries = getSubtopicScoreEntries(teamId, reviewId);
+  return sections.map((section) => {
+    const subtopicIds = new Set(section.subtopics.map((s) => s.id));
+    const avgBySubtopic = new Map<string, number>();
+    for (const subId of subtopicIds) {
+      const subEntries = entries.filter((e) => e.subtopic_id === subId);
+      if (subEntries.length > 0) {
+        avgBySubtopic.set(
+          subId,
+          subEntries.reduce((sum, e) => sum + GRADE_BAND_VALUE[e.band], 0) / subEntries.length
+        );
+      }
+    }
+    const ratedSubtopics = avgBySubtopic.size;
+    let score: number | null = null;
+    if (ratedSubtopics > 0) {
+      const avgOfAvgs = Array.from(avgBySubtopic.values()).reduce((a, b) => a + b, 0) / ratedSubtopics;
+      score = round2(section.maxMarks * (avgOfAvgs / 4));
+    }
+    return {
+      sectionId: section.id,
+      teamId,
+      reviewId,
+      score,
+      maxMarks: section.maxMarks,
+      ratedSubtopics,
+      totalSubtopics: subtopicIds.size,
+    } satisfies SectionScoreRow;
+  });
+}
+
+/** A team's rolled-up technical/non-technical/grand totals for one review -
+ * only sections with at least one rated subtopic count toward "possible",
+ * so an unstarted review reads as 0/0 rather than 0/100. */
+export function computeReviewTotal(teamId: string, reviewId: string): ReviewTotalRow {
+  const sections = getSectionsForReview(reviewId);
+  const sectionScores = computeSectionScores(teamId, reviewId);
+  const sectionById = new Map(sections.map((s) => [s.id, s]));
+  let technicalEarned = 0;
+  let technicalMax = 0;
+  let nonTechnicalEarned = 0;
+  let nonTechnicalMax = 0;
+  for (const ss of sectionScores) {
+    if (ss.score === null) continue;
+    const section = sectionById.get(ss.sectionId)!;
+    if (section.category === "technical") {
+      technicalEarned += ss.score;
+      technicalMax += ss.maxMarks;
+    } else {
+      nonTechnicalEarned += ss.score;
+      nonTechnicalMax += ss.maxMarks;
+    }
+  }
   return {
-    id,
-    student_id: studentId,
-    review_id: reviewId,
-    reviewer_id: reviewerId,
-    text,
-    rating: null,
-    order_index: order,
-    created_at: now,
-    updated_at: now,
+    teamId,
+    reviewId,
+    technicalEarned: round2(technicalEarned),
+    technicalMax: round2(technicalMax),
+    nonTechnicalEarned: round2(nonTechnicalEarned),
+    nonTechnicalMax: round2(nonTechnicalMax),
+    totalEarned: round2(technicalEarned + nonTechnicalEarned),
+    totalMax: round2(technicalMax + nonTechnicalMax),
   };
 }
 
-export function updateAskedQuestion(id: string, patch: { text?: string; rating?: GradeBand | null }): AskedQuestionRow {
+/** Upserts ONE reviewer's own 4-band rating of one subtopic for one team.
+ * Set band to null to clear this reviewer's rating. Returns the raw entries
+ * plus the recomputed score for the subtopic's section, so the UI can
+ * update optimistically without a full refetch. */
+export function upsertSubtopicScore(
+  subtopicId: string,
+  teamId: string,
+  reviewerId: string,
+  band: GradeBand | null
+): { entries: SubtopicScoreRow[]; sectionScore: SectionScoreRow } {
   const db = getDb();
   const now = new Date().toISOString();
-  if (patch.text !== undefined) {
-    db.prepare("UPDATE asked_questions SET text = ?, updated_at = ? WHERE id = ?").run(patch.text, now, id);
+  if (band === null) {
+    db.prepare("DELETE FROM subtopic_scores WHERE subtopic_id = ? AND team_id = ? AND reviewer_id = ?").run(
+      subtopicId,
+      teamId,
+      reviewerId
+    );
+  } else {
+    const id = `${subtopicId}:${teamId}:${reviewerId}`;
+    db.prepare(
+      `INSERT INTO subtopic_scores (id, subtopic_id, team_id, reviewer_id, band, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(subtopic_id, team_id, reviewer_id) DO UPDATE SET band = excluded.band, updated_at = excluded.updated_at`
+    ).run(id, subtopicId, teamId, reviewerId, band, now);
   }
-  if (patch.rating !== undefined) {
-    db.prepare("UPDATE asked_questions SET rating = ?, updated_at = ? WHERE id = ?").run(patch.rating, now, id);
-  }
-  return db.prepare("SELECT * FROM asked_questions WHERE id = ?").get(id) as AskedQuestionRow;
+  const subtopic = db.prepare("SELECT section_id FROM subtopics WHERE id = ?").get(subtopicId) as
+    | { section_id: string }
+    | undefined;
+  const section = subtopic
+    ? (db.prepare("SELECT review_id FROM review_sections WHERE id = ?").get(subtopic.section_id) as
+        | { review_id: string }
+        | undefined)
+    : undefined;
+  const reviewId = section?.review_id ?? "";
+  const entries = getSubtopicScoreEntries(teamId, reviewId);
+  const sectionScore = computeSectionScores(teamId, reviewId).find((s) => s.sectionId === subtopic?.section_id)!;
+  return { entries, sectionScore };
 }
 
-export function deleteAskedQuestion(id: string): void {
-  getDb().prepare("DELETE FROM asked_questions WHERE id = ?").run(id);
+/** Class-wide computed section scores + review totals for every team - the
+ * shape Score/Review/Stats/Export all consume. */
+export function getScoresForClass(classId: string): {
+  sectionScores: SectionScoreRow[];
+  reviewTotals: ReviewTotalRow[];
+} {
+  const db = getDb();
+  const teams = db.prepare("SELECT id FROM teams WHERE class_id = ?").all(classId) as { id: string }[];
+  const reviews = db.prepare("SELECT id FROM reviews ORDER BY number").all() as { id: string }[];
+  const sectionScores: SectionScoreRow[] = [];
+  const reviewTotals: ReviewTotalRow[] = [];
+  for (const team of teams) {
+    for (const review of reviews) {
+      sectionScores.push(...computeSectionScores(team.id, review.id));
+      reviewTotals.push(computeReviewTotal(team.id, review.id));
+    }
+  }
+  return { sectionScores, reviewTotals };
 }
 
-// ---- Live review sessions (presentation timer -> individual Q&A -> final) ----
+// ---- Weak topics (replaces the old per-student Q&A log) ----
+
+/** A team's weakest-rated subtopics across every review scored so far -
+ * anything averaging below "Meets" (band 3), worst first. Empty once the
+ * team has no below-par ratings. */
+export function getWeakTopics(teamId: string, limit = 8): WeakTopicRow[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT sub.id as subtopicId, sub.label as subtopicLabel, rs.id as sectionId, rs.label as sectionLabel,
+              rv.id as reviewId, rv.label as reviewLabel, ss.band
+       FROM subtopic_scores ss
+       JOIN subtopics sub ON ss.subtopic_id = sub.id
+       JOIN review_sections rs ON sub.section_id = rs.id
+       JOIN reviews rv ON rs.review_id = rv.id
+       WHERE ss.team_id = ?`
+    )
+    .all(teamId) as {
+    subtopicId: string;
+    subtopicLabel: string;
+    sectionId: string;
+    sectionLabel: string;
+    reviewId: string;
+    reviewLabel: string;
+    band: GradeBand;
+  }[];
+
+  const bySubtopic = new Map<string, { meta: (typeof rows)[number]; bands: GradeBand[] }>();
+  for (const r of rows) {
+    if (!bySubtopic.has(r.subtopicId)) bySubtopic.set(r.subtopicId, { meta: r, bands: [] });
+    bySubtopic.get(r.subtopicId)!.bands.push(r.band);
+  }
+
+  const weak: WeakTopicRow[] = Array.from(bySubtopic.values())
+    .map(({ meta, bands }) => ({
+      subtopicId: meta.subtopicId,
+      subtopicLabel: meta.subtopicLabel,
+      sectionId: meta.sectionId,
+      sectionLabel: meta.sectionLabel,
+      reviewId: meta.reviewId,
+      reviewLabel: meta.reviewLabel,
+      teamId,
+      avgBand: round2(bands.reduce((sum, b) => sum + GRADE_BAND_VALUE[b], 0) / bands.length),
+      ratingCount: bands.length,
+    }))
+    .filter((w) => w.avgBand < 3)
+    .sort((a, b) => a.avgBand - b.avgBand);
+
+  return weak.slice(0, limit);
+}
+
+// ---- Live review sessions (presentation timer -> team scoring -> done) ----
 
 function freshReviewSession(teamId: string, reviewId: string): ReviewSessionRow {
   return {
@@ -532,7 +526,6 @@ function freshReviewSession(teamId: string, reviewId: string): ReviewSessionRow 
     phase: "idle",
     timer_started_at: null,
     timer_duration_seconds: 1200,
-    current_student_index: 0,
     updated_at: new Date().toISOString(),
   };
 }
@@ -544,8 +537,8 @@ export function getReviewSession(teamId: string, reviewId: string): ReviewSessio
   if (row) return row;
   const fresh = freshReviewSession(teamId, reviewId);
   db.prepare(
-    `INSERT INTO review_sessions (id, team_id, review_id, phase, timer_started_at, timer_duration_seconds, current_student_index, updated_at)
-     VALUES (@id, @team_id, @review_id, @phase, @timer_started_at, @timer_duration_seconds, @current_student_index, @updated_at)`
+    `INSERT INTO review_sessions (id, team_id, review_id, phase, timer_started_at, timer_duration_seconds, updated_at)
+     VALUES (@id, @team_id, @review_id, @phase, @timer_started_at, @timer_duration_seconds, @updated_at)`
   ).run(fresh);
   return fresh;
 }
@@ -553,50 +546,38 @@ export function getReviewSession(teamId: string, reviewId: string): ReviewSessio
 export function updateReviewSession(
   teamId: string,
   reviewId: string,
-  patch: Partial<
-    Pick<ReviewSessionRow, "phase" | "timer_started_at" | "timer_duration_seconds" | "current_student_index">
-  >
+  patch: Partial<Pick<ReviewSessionRow, "phase" | "timer_started_at" | "timer_duration_seconds">>
 ): ReviewSessionRow {
   const db = getDb();
   const current = getReviewSession(teamId, reviewId);
   const next = { ...current, ...patch, updated_at: new Date().toISOString() };
   db.prepare(
     `UPDATE review_sessions SET phase=@phase, timer_started_at=@timer_started_at,
-       timer_duration_seconds=@timer_duration_seconds, current_student_index=@current_student_index,
-       updated_at=@updated_at WHERE id=@id`
+       timer_duration_seconds=@timer_duration_seconds, updated_at=@updated_at WHERE id=@id`
   ).run(next);
   return next;
 }
 
 // ---- Reset (scoring data only - never touches classes/teams/students/rubric) ----
 
-/** Clears one team's scores, dimension scores/asked questions, and
- * live-session state so it can be graded again from scratch. Roster is
- * untouched. */
+/** Clears one team's subtopic ratings and live-session state so it can be
+ * graded again from scratch. Roster is untouched. */
 export function resetTeamScoring(teamId: string): void {
   const db = getDb();
   const tx = db.transaction(() => {
-    const students = db.prepare("SELECT id FROM students WHERE team_id = ?").all(teamId) as { id: string }[];
-    db.prepare("DELETE FROM team_scores WHERE team_id = ?").run(teamId);
+    db.prepare("DELETE FROM subtopic_scores WHERE team_id = ?").run(teamId);
     db.prepare("DELETE FROM review_sessions WHERE team_id = ?").run(teamId);
-    for (const s of students) {
-      db.prepare("DELETE FROM individual_scores WHERE student_id = ?").run(s.id);
-      db.prepare("DELETE FROM dimension_scores WHERE student_id = ?").run(s.id);
-      db.prepare("DELETE FROM asked_questions WHERE student_id = ?").run(s.id);
-    }
   });
   tx();
 }
 
 /** Clears ALL scoring data across every class - classes, teams, students,
- * the rubric, and the dimension weights are all left exactly as they are. */
+ * the review/section/subtopic structure, and the reviewer roster are all
+ * left exactly as they are. */
 export function resetAllScoring(): void {
   const db = getDb();
   const tx = db.transaction(() => {
-    db.prepare("DELETE FROM team_scores").run();
-    db.prepare("DELETE FROM individual_scores").run();
-    db.prepare("DELETE FROM dimension_scores").run();
-    db.prepare("DELETE FROM asked_questions").run();
+    db.prepare("DELETE FROM subtopic_scores").run();
     db.prepare("DELETE FROM review_sessions").run();
   });
   tx();

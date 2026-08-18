@@ -1,7 +1,7 @@
 import { Component, computed, signal } from '@angular/core';
 import * as XLSX from 'xlsx';
-import { buildSummaryRows, overallByStudent } from '../../core/rollup';
-import type { RosterExportRow, TeamScoreExportRow, IndividualScoreExportRow } from '../../core/models/types';
+import { teamGrandTotals } from '../../core/rollup';
+import type { RosterExportRow, SectionScoreExportRow, ReviewTotalExportRow } from '../../core/models/types';
 import { ButtonComponent } from '../../ui/button.component';
 import { CardComponent, CardContentComponent } from '../../ui/card.component';
 
@@ -13,28 +13,26 @@ import { CardComponent, CardContentComponent } from '../../ui/card.component';
 })
 export class MergeComponent {
   roster = signal<RosterExportRow[]>([]);
-  teamScores = signal<TeamScoreExportRow[]>([]);
-  individualScores = signal<IndividualScoreExportRow[]>([]);
+  sectionScores = signal<SectionScoreExportRow[]>([]);
+  reviewTotals = signal<ReviewTotalExportRow[]>([]);
   fileNames = signal<string[]>([]);
   error = signal<string | null>(null);
 
-  summary = computed(() => buildSummaryRows(this.teamScores(), this.individualScores()));
-  overall = computed(() =>
-    overallByStudent(this.summary()).sort((a, b) => {
+  grandTotals = computed(() =>
+    teamGrandTotals(this.reviewTotals()).sort((a, b) => {
       if (a.Class !== b.Class) return a.Class.localeCompare(b.Class);
-      if (a.Team !== b.Team) return a.Team.localeCompare(b.Team);
-      return a.Student.localeCompare(b.Student);
+      return a.Team.localeCompare(b.Team);
     })
   );
-  classCount = computed(() => new Set(this.overall().map((r) => r.Class)).size);
+  classCount = computed(() => new Set(this.grandTotals().map((r) => r.Class)).size);
 
   async handleFiles(input: HTMLInputElement) {
     const files = input.files;
     if (!files || files.length === 0) return;
     this.error.set(null);
     const newRoster: RosterExportRow[] = [];
-    const newTeamScores: TeamScoreExportRow[] = [];
-    const newIndividualScores: IndividualScoreExportRow[] = [];
+    const newSectionScores: SectionScoreExportRow[] = [];
+    const newReviewTotals: ReviewTotalExportRow[] = [];
     const names: string[] = [];
 
     for (const file of Array.from(files)) {
@@ -44,13 +42,11 @@ export class MergeComponent {
         if (wb.Sheets['Roster']) {
           newRoster.push(...(XLSX.utils.sheet_to_json(wb.Sheets['Roster']) as RosterExportRow[]));
         }
-        if (wb.Sheets['TeamScores']) {
-          newTeamScores.push(...(XLSX.utils.sheet_to_json(wb.Sheets['TeamScores']) as TeamScoreExportRow[]));
+        if (wb.Sheets['SectionScores']) {
+          newSectionScores.push(...(XLSX.utils.sheet_to_json(wb.Sheets['SectionScores']) as SectionScoreExportRow[]));
         }
-        if (wb.Sheets['IndividualScores']) {
-          newIndividualScores.push(
-            ...(XLSX.utils.sheet_to_json(wb.Sheets['IndividualScores']) as IndividualScoreExportRow[])
-          );
+        if (wb.Sheets['ReviewTotals']) {
+          newReviewTotals.push(...(XLSX.utils.sheet_to_json(wb.Sheets['ReviewTotals']) as ReviewTotalExportRow[]));
         }
         names.push(file.name);
       } catch {
@@ -59,8 +55,8 @@ export class MergeComponent {
     }
 
     this.roster.update((prev) => [...prev, ...newRoster]);
-    this.teamScores.update((prev) => [...prev, ...newTeamScores]);
-    this.individualScores.update((prev) => [...prev, ...newIndividualScores]);
+    this.sectionScores.update((prev) => [...prev, ...newSectionScores]);
+    this.reviewTotals.update((prev) => [...prev, ...newReviewTotals]);
     this.fileNames.update((prev) => [...prev, ...names]);
     input.value = '';
   }
@@ -68,17 +64,16 @@ export class MergeComponent {
   downloadMerged() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(this.roster()), 'Roster');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(this.teamScores()), 'TeamScores');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(this.individualScores()), 'IndividualScores');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(this.summary()), 'Summary');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(this.overall()), 'Overall');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(this.sectionScores()), 'SectionScores');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(this.reviewTotals()), 'ReviewTotals');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(this.grandTotals()), 'GrandTotals');
     XLSX.writeFile(wb, 'review-grader-master.xlsx');
   }
 
   reset() {
     this.roster.set([]);
-    this.teamScores.set([]);
-    this.individualScores.set([]);
+    this.sectionScores.set([]);
+    this.reviewTotals.set([]);
     this.fileNames.set([]);
     this.error.set(null);
   }

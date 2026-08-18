@@ -7,25 +7,25 @@ import { DarkModeService } from '../../core/services/dark-mode.service';
 import { CATEGORICAL_LIGHT, CATEGORICAL_DARK, CHROME, STATUS, sequentialBlue } from '../../core/chart-colors';
 import { buildExportRows } from '../../core/export-rows';
 import {
-  teamOverallAverages,
+  teamPercentages,
   teamTrendByReview,
   classAverageTrend,
-  studentLeaderboard,
+  teamLeaderboard,
   categoryBreakdownByReview,
-  criteriaHeatmap,
+  sectionHeatmap,
   scoreHistogram,
-  teamScatterData,
+  technicalVsNonTechnicalScatter,
   scoreHealthByReview,
   radarDataForReview,
 } from '../../core/stats-utils';
-import type { ClassData, ReviewDef, CriterionDef, TeamScoreRow, IndividualScoreRow } from '../../core/models/types';
+import type { ClassData, ReviewDef, ReviewSectionDef, SectionScoreRow, ReviewTotalRow } from '../../core/models/types';
 import { ButtonComponent } from '../../ui/button.component';
 import { CardComponent, CardContentComponent, CardHeaderComponent, CardTitleComponent } from '../../ui/card.component';
 import { BadgeComponent } from '../../ui/badge.component';
 import { ChartCardComponent } from '../../ui/chart-card.component';
 import { EmptyStateComponent } from '../../ui/empty-state.component';
 
-type ReviewWithCriteria = ReviewDef & { criteria: CriterionDef[] };
+type ReviewWithSections = ReviewDef & { sections: ReviewSectionDef[] };
 
 @Component({
   selector: 'app-stats',
@@ -51,9 +51,9 @@ export class StatsComponent {
   classId = input.required<string>();
 
   classData = signal<ClassData | null>(null);
-  reviews = signal<ReviewWithCriteria[]>([]);
-  teamScores = signal<TeamScoreRow[]>([]);
-  individualScores = signal<IndividualScoreRow[]>([]);
+  reviews = signal<ReviewWithSections[]>([]);
+  sectionScores = signal<SectionScoreRow[]>([]);
+  reviewTotals = signal<ReviewTotalRow[]>([]);
   reviewFocus = signal<number | 'all'>('all');
   radarTeams = signal<string[]>([]);
 
@@ -68,13 +68,13 @@ export class StatsComponent {
           }
         }
       });
-      this.api.apiGet<ReviewWithCriteria[]>('/api/reviews').then((r) => this.reviews.set(r ?? []));
+      this.api.apiGet<ReviewWithSections[]>('/api/reviews').then((r) => this.reviews.set(r ?? []));
       this.api
-        .apiGet<{ teamScores: TeamScoreRow[]; individualScores: IndividualScoreRow[] }>(`/api/scores?classId=${classId}`)
+        .apiGet<{ sectionScores: SectionScoreRow[]; reviewTotals: ReviewTotalRow[] }>(`/api/scores?classId=${classId}`)
         .then((d) => {
           if (!d) return;
-          this.teamScores.set(d.teamScores);
-          this.individualScores.set(d.individualScores);
+          this.sectionScores.set(d.sectionScores);
+          this.reviewTotals.set(d.reviewTotals);
         });
     });
   }
@@ -83,7 +83,7 @@ export class StatsComponent {
     const classData = this.classData();
     const reviews = this.reviews();
     if (!classData || reviews.length === 0) return null;
-    return buildExportRows(classData, reviews, this.teamScores(), this.individualScores());
+    return buildExportRows(classData, reviews, this.sectionScores(), this.reviewTotals());
   });
 
   ready = computed(() => this.classData() !== null && this.rows() !== null && this.reviews().length > 0);
@@ -94,45 +94,40 @@ export class StatsComponent {
     return focus === 'all' ? reviews[reviews.length - 1] : reviews.find((r) => r.number === focus);
   });
 
-  teamAverages = computed(() => (this.rows() ? teamOverallAverages(this.classData()!, this.rows()!.teamScoreRows) : []));
+  teamAverages = computed(() => (this.rows() ? teamPercentages(this.rows()!.reviewTotalRows) : []));
   teamTrend = computed(() =>
-    this.rows() ? teamTrendByReview(this.classData()!, this.reviews(), this.rows()!.teamScoreRows) : []
+    this.rows() ? teamTrendByReview(this.classData()!, this.reviews(), this.rows()!.reviewTotalRows) : []
   );
-  classTrend = computed(() => (this.rows() ? classAverageTrend(this.reviews(), this.rows()!.teamScoreRows) : []));
-  leaderboard = computed(() =>
-    this.rows() ? studentLeaderboard(this.rows()!.teamScoreRows, this.rows()!.individualScoreRows) : []
-  );
+  classTrend = computed(() => (this.rows() ? classAverageTrend(this.reviews(), this.rows()!.reviewTotalRows) : []));
+  leaderboard = computed(() => (this.rows() ? teamLeaderboard(this.rows()!.reviewTotalRows) : []));
   categoryTrend = computed(() =>
-    this.rows() ? categoryBreakdownByReview(this.reviews(), this.rows()!.teamScoreRows) : []
+    this.rows() ? categoryBreakdownByReview(this.reviews(), this.rows()!.reviewTotalRows) : []
   );
-  histogram = computed(() =>
-    this.rows() ? scoreHistogram(this.rows()!.teamScoreRows, this.rows()!.individualScoreRows) : []
-  );
-  scatter = computed(() =>
-    this.rows() ? teamScatterData(this.classData()!, this.rows()!.teamScoreRows, this.rows()!.individualScoreRows) : []
-  );
-  health = computed(() => (this.rows() ? scoreHealthByReview(this.reviews(), this.rows()!.teamScoreRows) : []));
+  histogram = computed(() => (this.rows() ? scoreHistogram(this.rows()!.reviewTotalRows) : []));
+  scatter = computed(() => (this.rows() ? technicalVsNonTechnicalScatter(this.rows()!.reviewTotalRows) : []));
+  health = computed(() => (this.rows() ? scoreHealthByReview(this.reviews(), this.rows()!.sectionScoreRows) : []));
   heatmap = computed(() => {
     const review = this.heatmapReview();
-    return review && this.rows() ? criteriaHeatmap(this.classData()!, review, this.rows()!.teamScoreRows) : null;
+    return review && this.rows() ? sectionHeatmap(this.classData()!, review, this.rows()!.sectionScoreRows) : null;
   });
   radar = computed(() => {
     const review = this.heatmapReview();
-    return review && this.rows() ? radarDataForReview(review, this.rows()!.teamScoreRows, this.radarTeams()) : null;
+    return review && this.rows() ? radarDataForReview(review, this.rows()!.sectionScoreRows, this.radarTeams()) : null;
   });
 
-  scoredStudents = computed(() => this.leaderboard().filter((s) => s.reviewsScored > 0).length);
+  scoredTeams = computed(() => this.leaderboard().filter((t) => t.reviewsScored > 0).length);
+  totalStudents = computed(() => (this.classData()?.teams ?? []).reduce((n, t) => n + t.students.length, 0));
   classOverallAvg = computed(() => {
     const lb = this.leaderboard();
     if (lb.length === 0) return null;
-    const withScore = lb.filter((s) => s.overall !== null);
+    const withScore = lb.filter((t) => t.overall !== null);
     return (
-      Math.round((lb.reduce((sum, s) => sum + (s.overall ?? 0), 0) / Math.max(1, withScore.length)) * 100) / 100
+      Math.round((lb.reduce((sum, t) => sum + (t.overall ?? 0), 0) / Math.max(1, withScore.length)) * 100) / 100
     );
   });
 
   healthAllZero = computed(() => this.health().every((h) => h.Low + h.Mid + h.High === 0));
-  scatterHasData = computed(() => this.scatter().filter((s) => s.teamAvg !== null).length > 0);
+  scatterHasData = computed(() => this.scatter().filter((s) => s.technicalPct !== null).length > 0);
 
   private dark = computed(() => this.darkMode.isDark());
   private categorical = computed(() => (this.dark() ? CATEGORICAL_DARK : CATEGORICAL_LIGHT));
@@ -157,8 +152,8 @@ export class StatsComponent {
     labels: this.teamAverages().map((t) => t.team),
     datasets: [
       {
-        label: 'Avg score',
-        data: this.teamAverages().map((t) => t.avg),
+        label: 'Overall %',
+        data: this.teamAverages().map((t) => t.percentage),
         backgroundColor: sequentialBlue(0.7, this.dark()),
         borderRadius: 4,
         maxBarThickness: 56,
@@ -168,7 +163,7 @@ export class StatsComponent {
   teamComparisonOptions = computed<ChartConfiguration<'bar'>['options']>(() => ({
     responsive: true,
     maintainAspectRatio: false,
-    scales: { x: this.axisOptions(), y: { ...this.axisOptions(), min: 0, max: 5 } },
+    scales: { x: this.axisOptions(), y: { ...this.axisOptions(), min: 0, max: 100 } },
     plugins: {
       legend: { display: false },
       tooltip: this.tooltipOptions(),
@@ -193,7 +188,7 @@ export class StatsComponent {
   teamTrendOptions = computed<ChartConfiguration<'line'>['options']>(() => ({
     responsive: true,
     maintainAspectRatio: false,
-    scales: { x: this.axisOptions(), y: { ...this.axisOptions(), min: 0, max: 5 } },
+    scales: { x: this.axisOptions(), y: { ...this.axisOptions(), min: 0, max: 100 } },
     plugins: { legend: { position: 'bottom', labels: { font: { size: 12 } } }, tooltip: this.tooltipOptions(), datalabels: { display: false } },
   }));
 
@@ -202,7 +197,7 @@ export class StatsComponent {
     labels: this.classTrend().map((r) => r.review),
     datasets: [
       {
-        label: 'Class avg',
+        label: 'Class avg %',
         data: this.classTrend().map((r) => r.avg),
         borderColor: this.categorical()[0],
         backgroundColor: this.categorical()[0],
@@ -216,7 +211,7 @@ export class StatsComponent {
   classTrendOptions = computed<ChartConfiguration<'line'>['options']>(() => ({
     responsive: true,
     maintainAspectRatio: false,
-    scales: { x: this.axisOptions(), y: { ...this.axisOptions(), min: 0, max: 5 } },
+    scales: { x: this.axisOptions(), y: { ...this.axisOptions(), min: 0, max: 100 } },
     plugins: { legend: { display: false }, tooltip: this.tooltipOptions(), datalabels: { display: false } },
   }));
 
@@ -224,25 +219,25 @@ export class StatsComponent {
   categoryTrendData = computed<ChartData<'bar'>>(() => ({
     labels: this.categoryTrend().map((r) => r.review),
     datasets: [
-      { label: 'Build', data: this.categoryTrend().map((r) => r.Build), backgroundColor: this.categorical()[0], borderRadius: 4, maxBarThickness: 40 },
-      { label: 'Security', data: this.categoryTrend().map((r) => r.Security), backgroundColor: this.categorical()[1], borderRadius: 4, maxBarThickness: 40 },
+      { label: 'Technical', data: this.categoryTrend().map((r) => r.Technical), backgroundColor: this.categorical()[0], borderRadius: 4, maxBarThickness: 40 },
+      { label: 'Non-Technical', data: this.categoryTrend().map((r) => r.NonTechnical), backgroundColor: this.categorical()[1], borderRadius: 4, maxBarThickness: 40 },
     ],
   }));
   categoryTrendOptions = computed<ChartConfiguration<'bar'>['options']>(() => ({
     responsive: true,
     maintainAspectRatio: false,
-    scales: { x: this.axisOptions(), y: { ...this.axisOptions(), min: 0, max: 5 } },
+    scales: { x: this.axisOptions(), y: { ...this.axisOptions(), min: 0, max: 100 } },
     plugins: { legend: { position: 'bottom', labels: { font: { size: 12 } } }, tooltip: this.tooltipOptions(), datalabels: { display: false } },
   }));
 
-  // 5. Student leaderboard (horizontal bar)
+  // 5. Team leaderboard (horizontal bar)
   leaderboardHeight = computed(() => Math.max(220, this.leaderboard().length * 26));
   leaderboardData = computed<ChartData<'bar'>>(() => ({
-    labels: this.leaderboard().map((s) => s.student),
+    labels: this.leaderboard().map((t) => t.team),
     datasets: [
       {
-        label: 'Overall',
-        data: this.leaderboard().map((s) => s.overall),
+        label: 'Overall %',
+        data: this.leaderboard().map((t) => t.overall),
         backgroundColor: sequentialBlue(0.6, this.dark()),
         borderRadius: 4,
         maxBarThickness: 16,
@@ -253,15 +248,10 @@ export class StatsComponent {
     indexAxis: 'y',
     responsive: true,
     maintainAspectRatio: false,
-    scales: { x: { ...this.axisOptions(), min: 0, max: 6 }, y: this.axisOptions() },
+    scales: { x: { ...this.axisOptions(), min: 0, max: 100 }, y: this.axisOptions() },
     plugins: {
       legend: { display: false },
-      tooltip: {
-        ...this.tooltipOptions(),
-        callbacks: {
-          label: (ctx) => `Overall (${this.leaderboard()[ctx.dataIndex]?.team}): ${ctx.formattedValue}`,
-        },
-      },
+      tooltip: this.tooltipOptions(),
       datalabels: { anchor: 'end', align: 'right', color: this.chrome().textSecondary, font: { size: 11 } },
     },
   }));
@@ -271,7 +261,7 @@ export class StatsComponent {
     labels: this.histogram().map((h) => h.bucket),
     datasets: [
       {
-        label: 'Students',
+        label: 'Teams',
         data: this.histogram().map((h) => h.count),
         backgroundColor: sequentialBlue(0.5, this.dark()),
         borderRadius: 4,
@@ -285,7 +275,7 @@ export class StatsComponent {
     scales: { x: this.axisOptions(), y: { ...this.axisOptions(), ticks: { ...this.axisOptions().ticks, precision: 0 } } },
     plugins: {
       legend: { display: false },
-      tooltip: { ...this.tooltipOptions(), callbacks: { label: (ctx) => `Students: ${ctx.formattedValue}` } },
+      tooltip: { ...this.tooltipOptions(), callbacks: { label: (ctx) => `Teams: ${ctx.formattedValue}` } },
       datalabels: { display: false },
     },
   }));
@@ -309,13 +299,13 @@ export class StatsComponent {
     plugins: { legend: { position: 'bottom', labels: { font: { size: 12 } } }, tooltip: this.tooltipOptions(), datalabels: { display: false } },
   }));
 
-  // 8. Team scatter
-  scatterPoints = computed(() => this.scatter().filter((s) => s.teamAvg !== null));
+  // 8. Technical vs Non-Technical scatter (Review 1 only)
+  scatterPoints = computed(() => this.scatter().filter((s) => s.technicalPct !== null));
   scatterData = computed<ChartData<'scatter'>>(() => ({
     datasets: [
       {
         label: 'Teams',
-        data: this.scatterPoints().map((s) => ({ x: s.teamAvg, y: s.avgDelta })),
+        data: this.scatterPoints().map((s) => ({ x: s.technicalPct, y: s.nonTechnicalPct })),
         backgroundColor: this.categorical()[0],
         pointRadius: 5,
       },
@@ -325,8 +315,8 @@ export class StatsComponent {
     responsive: true,
     maintainAspectRatio: false,
     scales: {
-      x: { ...this.axisOptions(), min: 0, max: 5, title: { display: true, text: 'Team baseline avg', font: { size: 11 }, color: this.chrome().muted } },
-      y: { ...this.axisOptions(), min: -2, max: 2, title: { display: true, text: 'Avg individual delta', font: { size: 11 }, color: this.chrome().muted } },
+      x: { ...this.axisOptions(), min: 0, max: 100, title: { display: true, text: 'Technical %', font: { size: 11 }, color: this.chrome().muted } },
+      y: { ...this.axisOptions(), min: 0, max: 100, title: { display: true, text: 'Non-Technical %', font: { size: 11 }, color: this.chrome().muted } },
     },
     plugins: {
       legend: { display: false },
@@ -367,7 +357,7 @@ export class StatsComponent {
     scales: {
       r: {
         min: 0,
-        max: 5,
+        max: 100,
         pointLabels: { font: { size: 9 }, color: this.chrome().muted },
         ticks: { font: { size: 9 }, color: this.chrome().muted, backdropColor: 'transparent' },
         grid: { color: this.chrome().grid },
@@ -397,7 +387,7 @@ export class StatsComponent {
   }
 
   heatCellColor(v: number | null): string {
-    return v === null ? 'transparent' : sequentialBlue(v / 5, this.dark());
+    return v === null ? 'transparent' : sequentialBlue(v / 100, this.dark());
   }
 
   dashedBorder(): string {
@@ -406,6 +396,6 @@ export class StatsComponent {
 
   cellTextColor(v: number | null): string {
     if (v === null) return this.chrome().muted;
-    return v / 5 > 0.55 ? '#fff' : this.chrome().textPrimary;
+    return v / 100 > 0.55 ? '#fff' : this.chrome().textPrimary;
   }
 }

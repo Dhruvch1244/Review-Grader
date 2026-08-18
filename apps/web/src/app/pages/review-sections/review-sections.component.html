@@ -1,0 +1,51 @@
+<div class="space-y-6">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold tracking-tight">Reviews</h1>
+      <p class="text-sm text-muted-foreground mt-1">
+        Edit each review's section labels and marks. Reviewers break sections into subtopics on the fly while
+        scoring - this page just controls the top-level structure and point values.
+      </p>
+    </div>
+    <button appButton (click)="save()" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save changes' }}</button>
+  </div>
+
+  <div class="grid gap-4 md:grid-cols-2">
+    @for (review of reviews(); track review.id) {
+      <app-card>
+        <app-card-header class="flex-row items-center justify-between">
+          <app-card-title class="text-sm">R{{ review.number }}: {{ review.label }}</app-card-title>
+          <app-badge variant="outline">{{ reviewMax(review) }} marks</app-badge>
+        </app-card-header>
+        <app-card-content class="space-y-2.5">
+          @for (section of review.sections; track section.id) {
+            <div class="flex items-center gap-2">
+              <app-badge [variant]="section.category === 'technical' ? 'outline' : 'secondary'" class="shrink-0 text-[10px] w-24 justify-center">
+                {{ section.category === 'technical' ? 'Technical' : 'Non-Tech' }}
+              </app-badge>
+              <div class="flex-1 min-w-0">
+                <input
+                  appInput
+                  [value]="section.label"
+                  (input)="setLabel(review.id, section.id, $any($event.target).value)"
+                  class="h-8 text-sm w-full"
+                />
+              </div>
+              <div class="w-20 shrink-0">
+                <input
+                  appInput
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  [value]="section.maxMarks"
+                  (input)="setMarks(review.id, section.id, $any($event.target).value)"
+                  class="h-8 text-sm w-full text-right"
+                />
+              </div>
+            </div>
+          }
+        </app-card-content>
+      </app-card>
+    }
+  </div>
+</div>

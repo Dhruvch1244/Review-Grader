@@ -17,9 +17,15 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/scoring-home/scoring-home.component').then((m) => m.ScoringHomeComponent),
   },
   {
-    path: 'dimensions',
+    path: 'reviews',
     canActivate: [adminGuard],
-    loadComponent: () => import('./pages/dimensions/dimensions.component').then((m) => m.DimensionsComponent),
+    loadComponent: () =>
+      import('./pages/review-sections/review-sections.component').then((m) => m.ReviewSectionsComponent),
+  },
+  {
+    path: 'reviewers',
+    canActivate: [adminGuard],
+    loadComponent: () => import('./pages/reviewers/reviewers.component').then((m) => m.ReviewersComponent),
   },
   {
     path: 'normalize',

@@ -1,84 +1,84 @@
 import type {
   ClassData,
   ReviewDef,
-  CriterionDef,
-  TeamScoreRow,
-  IndividualScoreRow,
+  ReviewSectionDef,
+  SectionScoreRow,
+  ReviewTotalRow,
   RosterExportRow,
-  TeamScoreExportRow,
-  IndividualScoreExportRow,
+  SectionScoreExportRow,
+  ReviewTotalExportRow,
 } from "./types";
 
-type ReviewWithCriteria = ReviewDef & { criteria: CriterionDef[] };
+type ReviewWithSections = ReviewDef & { sections: ReviewSectionDef[] };
 
 /**
- * Turns the raw id-keyed rows (as stored/fetched) into the flat,
+ * Turns the raw id-keyed rows (as stored/computed) into the flat,
  * name-keyed export shapes shared by the xlsx export (server) and the
- * stats dashboard (client) - one place computes "which team/review/
- * criterion does this score belong to" instead of two.
+ * stats dashboard (client) - one place computes "which team/review/section
+ * does this score belong to" instead of two.
  */
 export function buildExportRows(
   classData: ClassData,
-  reviews: ReviewWithCriteria[],
-  teamScores: TeamScoreRow[],
-  individualScores: IndividualScoreRow[]
+  reviews: ReviewWithSections[],
+  sectionScores: SectionScoreRow[],
+  reviewTotals: ReviewTotalRow[]
 ): {
   roster: RosterExportRow[];
-  teamScoreRows: TeamScoreExportRow[];
-  individualScoreRows: IndividualScoreExportRow[];
+  sectionScoreRows: SectionScoreExportRow[];
+  reviewTotalRows: ReviewTotalExportRow[];
 } {
   const teamById = new Map(classData.teams.map((t) => [t.id, t]));
-  const criterionById = new Map(reviews.flatMap((r) => r.criteria.map((c) => [c.id, c])));
+  const sectionById = new Map(reviews.flatMap((r) => r.sections.map((s) => [s.id, s])));
   const reviewById = new Map(reviews.map((r) => [r.id, r]));
-  const studentById = new Map(
-    classData.teams.flatMap((t) => t.students.map((s) => [s.id, { ...s, team: t }]))
-  );
 
   const roster: RosterExportRow[] = classData.teams.flatMap((t) =>
     t.students.map((s) => ({
       Class: classData.class.name,
-      Reviewer: classData.class.reviewer_name ?? "",
       Team: t.name,
       Student: s.name,
     }))
   );
 
-  const teamScoreRows: TeamScoreExportRow[] = teamScores
-    .map((ts) => {
-      const team = teamById.get(ts.team_id);
-      const crit = criterionById.get(ts.criterion_id);
-      const review = reviewById.get(ts.review_id);
-      if (!team || !crit || !review) return null;
+  const sectionScoreRows: SectionScoreExportRow[] = sectionScores
+    .map((ss) => {
+      const team = teamById.get(ss.teamId);
+      const section = sectionById.get(ss.sectionId);
+      const review = reviewById.get(ss.reviewId);
+      if (!team || !section || !review) return null;
       return {
         Class: classData.class.name,
         Team: team.name,
         ReviewNumber: review.number,
         ReviewLabel: review.label,
-        Category: crit.category,
-        Criterion: crit.text,
-        Score: ts.score,
-        Notes: ts.notes,
+        Category: section.category,
+        Section: section.label,
+        MaxMarks: section.maxMarks,
+        Score: ss.score,
+        RatedSubtopics: ss.ratedSubtopics,
+        TotalSubtopics: ss.totalSubtopics,
       };
     })
-    .filter((r): r is TeamScoreExportRow => r !== null);
+    .filter((r): r is SectionScoreExportRow => r !== null);
 
-  const individualScoreRows: IndividualScoreExportRow[] = individualScores
-    .map((is) => {
-      const student = studentById.get(is.student_id);
-      const review = reviewById.get(is.review_id);
-      if (!student || !review) return null;
+  const reviewTotalRows: ReviewTotalExportRow[] = reviewTotals
+    .map((rt) => {
+      const team = teamById.get(rt.teamId);
+      const review = reviewById.get(rt.reviewId);
+      if (!team || !review) return null;
       return {
         Class: classData.class.name,
-        Team: student.team.name,
-        Student: student.name,
+        Team: team.name,
         ReviewNumber: review.number,
         ReviewLabel: review.label,
-        Delta: is.delta,
-        Grace: is.grace,
-        Notes: is.notes,
+        TechnicalEarned: rt.technicalEarned,
+        TechnicalMax: rt.technicalMax,
+        NonTechnicalEarned: rt.nonTechnicalEarned,
+        NonTechnicalMax: rt.nonTechnicalMax,
+        TotalEarned: rt.totalEarned,
+        TotalMax: rt.totalMax,
       };
     })
-    .filter((r): r is IndividualScoreExportRow => r !== null);
+    .filter((r): r is ReviewTotalExportRow => r !== null);
 
-  return { roster, teamScoreRows, individualScoreRows };
+  return { roster, sectionScoreRows, reviewTotalRows };
 }

@@ -5,8 +5,7 @@
     <div>
       <h1 class="text-2xl font-semibold tracking-tight">Cross-class normalization</h1>
       <p class="text-sm text-muted-foreground mt-1">
-        Different classes score differently even for equal work - normalize before comparing students across
-        classes.
+        Different classes score differently even for equal work - normalize before comparing teams across classes.
       </p>
     </div>
 
@@ -14,8 +13,8 @@
       <svg lucideInfo class="size-4"></svg>
       <app-alert-title>How this works</app-alert-title>
       <app-alert-description>
-        Each student's overall score is converted to a z-score against their own class's mean and spread, then
-        rescaled to a 0-100 band centered on 50 (a T-score) - so a 3.8 in a strict class and a 4.3 in a lenient one
+        Each team's overall percentage is converted to a z-score against their own class's mean and spread, then
+        rescaled to a 0-100 band centered on 50 (a T-score) - so an 82% in a strict class and a 91% in a lenient one
         can land at the same normalized value if they were equally strong relative to their own classmates.
       </app-alert-description>
     </app-alert>
@@ -50,7 +49,7 @@
 
     <app-card>
       <app-card-header>
-        <app-card-title class="text-sm">Every student, normalized</app-card-title>
+        <app-card-title class="text-sm">Every team, normalized</app-card-title>
       </app-card-header>
       <app-card-content>
         <div class="overflow-x-auto">
@@ -59,21 +58,19 @@
               <tr>
                 <th class="text-left px-3 py-2 font-medium">Class</th>
                 <th class="text-left px-3 py-2 font-medium">Team</th>
-                <th class="text-left px-3 py-2 font-medium">Student</th>
-                <th class="text-right px-3 py-2 font-medium">Raw</th>
+                <th class="text-right px-3 py-2 font-medium">Raw %</th>
                 <th class="text-right px-3 py-2 font-medium">Z-score</th>
                 <th class="text-right px-3 py-2 font-medium">Normalized</th>
               </tr>
             </thead>
             <tbody>
-              @for (s of data()!.students; track s.classId + s.team + s.student) {
+              @for (t of data()!.teams; track t.classId + t.team) {
                 <tr class="border-t">
-                  <td class="px-3 py-2">{{ s.className }}</td>
-                  <td class="px-3 py-2">{{ s.team }}</td>
-                  <td class="px-3 py-2">{{ s.student }}</td>
-                  <td class="px-3 py-2 text-right tabular-nums">{{ s.raw }}</td>
-                  <td class="px-3 py-2 text-right tabular-nums">{{ zLabel(s.z) }}</td>
-                  <td class="px-3 py-2 text-right font-medium tabular-nums">{{ s.normalized }}</td>
+                  <td class="px-3 py-2">{{ t.className }}</td>
+                  <td class="px-3 py-2">{{ t.team }}</td>
+                  <td class="px-3 py-2 text-right tabular-nums">{{ t.raw }}</td>
+                  <td class="px-3 py-2 text-right tabular-nums">{{ zLabel(t.z) }}</td>
+                  <td class="px-3 py-2 text-right font-medium tabular-nums">{{ t.normalized }}</td>
                 </tr>
               }
             </tbody>

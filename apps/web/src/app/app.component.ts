@@ -9,7 +9,8 @@ import { ToasterComponent } from './ui/toaster.component';
 
 const ADMIN_NAV_LINKS = [
   { href: '/setup', label: 'Setup' },
-  { href: '/dimensions', label: 'Dimensions' },
+  { href: '/reviewers', label: 'Reviewers' },
+  { href: '/reviews', label: 'Reviews' },
   { href: '/normalize', label: 'Normalize' },
   { href: '/merge', label: 'Merge' },
   { href: '/database', label: 'Database' },
