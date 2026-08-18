@@ -59,6 +59,11 @@ export function aggregateByTeamReview(reviewTotalRows: ReviewTotalExportRow[]): 
   });
 }
 
+/** Percentage is the average of each *scored* review's own percentage,
+ * each review weighted equally at 25% once all 4 are in - not a ratio of
+ * summed points, so a review's own point total (or how much of it is
+ * rated so far) doesn't skew the others. earned/max are still summed for
+ * reference display. */
 export function teamGrandTotals(teamReviewAggs: TeamReviewAgg[]): { team: string; earned: number; max: number; percentage: number | null }[] {
   const byTeam = new Map<string, TeamReviewAgg[]>();
   for (const r of teamReviewAggs) {
@@ -68,7 +73,9 @@ export function teamGrandTotals(teamReviewAggs: TeamReviewAgg[]): { team: string
   return Array.from(byTeam.entries()).map(([team, rows]) => {
     const earned = rows.reduce((s, r) => s + r.TotalEarned, 0);
     const max = rows.reduce((s, r) => s + r.TotalMax, 0);
-    return { team, earned: round2(earned), max: round2(max), percentage: max > 0 ? round2((earned / max) * 100) : null };
+    const reviewPcts = rows.filter((r) => r.TotalMax > 0).map((r) => (r.TotalEarned / r.TotalMax) * 100);
+    const percentage = reviewPcts.length > 0 ? round2(reviewPcts.reduce((a, b) => a + b, 0) / reviewPcts.length) : null;
+    return { team, earned: round2(earned), max: round2(max), percentage };
   });
 }
 

@@ -8,12 +8,14 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/** Sums each student's per-review totals into one grand total (earned/max
- * across all 4 reviews) plus a percentage - only reviews with at least
- * some score contribute to "possible", so an untouched review doesn't drag
- * the percentage down to 0. Team-scope sections contribute identically to
- * every student on a team; individual-scope sections (e.g. Presentation)
- * make two teammates' grand totals genuinely differ. */
+/** Sums each student's per-review totals into a grand total (earned/max
+ * across all 4 reviews, shown for reference) - but Percentage is the
+ * average of each *scored* review's own percentage, each review weighted
+ * equally at 25% once all 4 are in, regardless of that review's own point
+ * total or how much of it has been rated so far. Team-scope sections
+ * contribute identically to every student on a team; individual-scope
+ * sections (e.g. Presentation) make two teammates' figures genuinely
+ * differ. */
 export function studentGrandTotals(reviewTotalRows: ReviewTotalExportRow[]): StudentGrandTotalExportRow[] {
   const byStudent = new Map<string, ReviewTotalExportRow[]>();
   for (const row of reviewTotalRows) {
@@ -25,13 +27,15 @@ export function studentGrandTotals(reviewTotalRows: ReviewTotalExportRow[]): Stu
     const [Class, Team, Student] = key.split("::");
     const earned = rows.reduce((sum, r) => sum + r.TotalEarned, 0);
     const max = rows.reduce((sum, r) => sum + r.TotalMax, 0);
+    const reviewPcts = rows.filter((r) => r.TotalMax > 0).map((r) => (r.TotalEarned / r.TotalMax) * 100);
+    const percentage = reviewPcts.length > 0 ? round2(reviewPcts.reduce((a, b) => a + b, 0) / reviewPcts.length) : null;
     return {
       Class,
       Team,
       Student,
       GrandTotalEarned: round2(earned),
       GrandTotalMax: round2(max),
-      Percentage: max > 0 ? round2((earned / max) * 100) : null,
+      Percentage: percentage,
     };
   });
 }
