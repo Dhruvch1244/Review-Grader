@@ -1,33 +1,72 @@
 <div class="space-y-6">
-  <div>
-    <h1 class="text-2xl font-semibold tracking-tight">Scoring</h1>
-    <p class="text-sm text-muted-foreground mt-1">Pick a class to score or view its stats.</p>
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold tracking-tight">Scoring</h1>
+      <p class="text-sm text-muted-foreground mt-1">
+        @if (role.role() === 'admin') {
+          Pick a class to score or view its stats.
+        } @else {
+          Pick your name to see the classes and reviews you're assigned to.
+        }
+      </p>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <span class="text-xs text-muted-foreground">Scoring as</span>
+      <select
+        appSelect
+        size="sm"
+        class="text-xs"
+        (change)="selectReviewer($any($event.target).value || null)"
+      >
+        <option value="" [selected]="!currentReviewerId()">Pick your name…</option>
+        @for (r of reviewers(); track r.id) {
+          <option [value]="r.id" [selected]="r.id === currentReviewerId()">{{ r.name }}</option>
+        }
+      </select>
+    </div>
   </div>
 
-  <div class="space-y-3">
-    @for (c of classes(); track c.id) {
-      <app-card>
-        <app-card-content class="flex items-center justify-between py-4">
-          <div>
-            <p class="font-medium">{{ c.name }}</p>
-            <p class="text-xs text-muted-foreground">
-              {{ c.reviewer_name ? c.reviewer_name + ' · ' : '' }}{{ c.headcount }} students
-            </p>
-          </div>
-          <div class="flex items-center gap-1.5 shrink-0">
-            <a [routerLink]="'/score/' + c.id">
-              <button appButton variant="outline" size="sm">
-                <svg lucideClipboardList class="size-3.5"></svg> Score
-              </button>
-            </a>
-            <a [routerLink]="'/stats/' + c.id">
-              <button appButton variant="outline" size="icon" class="size-8" title="Stats">
-                <svg lucideBarChart3 class="size-4"></svg>
-              </button>
-            </a>
-          </div>
-        </app-card-content>
-      </app-card>
-    }
-  </div>
+  @if (role.role() !== 'admin' && !currentReviewerId()) {
+    <app-card class="border-dashed">
+      <app-card-content class="py-8 text-center text-sm text-muted-foreground">
+        Pick your name above to see the classes and reviews an admin has assigned you to.
+      </app-card-content>
+    </app-card>
+  } @else {
+    <div class="space-y-3">
+      @for (c of visibleClasses(); track c.id) {
+        <app-card>
+          <app-card-content class="flex items-center justify-between py-4">
+            <div>
+              <p class="font-medium">{{ c.name }}</p>
+              <p class="text-xs text-muted-foreground">
+                {{ c.reviewer_name ? c.reviewer_name + ' · ' : '' }}{{ c.headcount }} students
+                @if (role.role() !== 'admin') {
+                  · Assigned:
+                  @for (n of assignedReviewNumbers(c.id); track n) {
+                    <span class="font-medium text-foreground">R{{ n }}</span>{{ ' ' }}
+                  }
+                }
+              </p>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <a [routerLink]="'/score/' + c.id">
+                <button appButton variant="outline" size="sm">
+                  <svg lucideClipboardList class="size-3.5"></svg> Score
+                </button>
+              </a>
+              <a [routerLink]="'/stats/' + c.id">
+                <button appButton variant="outline" size="icon" class="size-8" title="Stats">
+                  <svg lucideBarChart3 class="size-4"></svg>
+                </button>
+              </a>
+            </div>
+          </app-card-content>
+        </app-card>
+      }
+      @if (visibleClasses().length === 0) {
+        <p class="text-sm text-muted-foreground">You're not assigned to any review yet - ask an admin to assign you from the Reviewers page.</p>
+      }
+    </div>
+  }
 </div>

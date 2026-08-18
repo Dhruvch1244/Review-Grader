@@ -2,46 +2,100 @@
   <div>
     <h1 class="text-2xl font-semibold tracking-tight">Reviewers</h1>
     <p class="text-sm text-muted-foreground mt-1">
-      One global roster shared across every class. Each reviewer picks which class's reviews they're on from the
-      Score/Review pages themselves - they can be on multiple reviews at once.
+      One global roster shared across every class. Assign 2 panelists to each class's review below - reviewers only
+      see what they're assigned to on the Scoring page.
     </p>
   </div>
 
-  <app-card class="max-w-lg">
-    <app-card-header>
-      <app-card-title class="text-sm">Roster</app-card-title>
-    </app-card-header>
-    <app-card-content class="space-y-2">
-      @for (r of reviewers(); track r.id) {
-        <div class="flex items-center gap-2">
+  <div class="grid gap-6 lg:grid-cols-[minmax(0,320px)_1fr]">
+    <app-card class="h-fit">
+      <app-card-header>
+        <app-card-title class="text-sm">Roster</app-card-title>
+      </app-card-header>
+      <app-card-content class="space-y-2">
+        @for (r of reviewers(); track r.id) {
+          <div class="flex items-center gap-2">
+            <input
+              appInput
+              [value]="r.name"
+              (input)="renameLocally(r.id, $any($event.target).value)"
+              (blur)="commitRename(r.id, $any($event.target).value)"
+              class="h-8 text-sm"
+            />
+            <button appButton variant="ghost" size="icon" class="h-8 w-8 shrink-0" (click)="removeReviewer(r.id)">
+              <svg lucideTrash2 class="size-4 text-muted-foreground"></svg>
+            </button>
+          </div>
+        }
+        @if (reviewers().length === 0) {
+          <p class="text-sm text-muted-foreground">No reviewers yet - add the first one below.</p>
+        }
+        <div class="flex items-center gap-2 pt-2 border-t">
           <input
             appInput
-            [value]="r.name"
-            (input)="renameLocally(r.id, $any($event.target).value)"
-            (blur)="commitRename(r.id, $any($event.target).value)"
+            [value]="newName()"
+            (input)="newName.set($any($event.target).value)"
+            (keydown.enter)="addReviewer()"
+            placeholder="Add a reviewer…"
             class="h-8 text-sm"
           />
-          <button appButton variant="ghost" size="icon" class="h-8 w-8 shrink-0" (click)="removeReviewer(r.id)">
-            <svg lucideTrash2 class="size-4 text-muted-foreground"></svg>
+          <button appButton size="sm" class="shrink-0" (click)="addReviewer()">
+            <svg lucidePlus class="size-4"></svg> Add
           </button>
         </div>
-      }
-      @if (reviewers().length === 0) {
-        <p class="text-sm text-muted-foreground">No reviewers yet - add the first one below.</p>
-      }
-      <div class="flex items-center gap-2 pt-2 border-t">
-        <input
-          appInput
-          [value]="newName()"
-          (input)="newName.set($any($event.target).value)"
-          (keydown.enter)="addReviewer()"
-          placeholder="Add a reviewer…"
-          class="h-8 text-sm"
-        />
-        <button appButton size="sm" class="shrink-0" (click)="addReviewer()">
-          <svg lucidePlus class="size-4"></svg> Add
-        </button>
+      </app-card-content>
+    </app-card>
+
+    <app-card class="overflow-hidden py-0">
+      <div class="p-4 pb-0">
+        <p class="text-sm font-medium">Panel assignment</p>
+        <p class="text-xs text-muted-foreground mt-0.5">Reviewer 1 / Reviewer 2 per class, per review.</p>
       </div>
-    </app-card-content>
-  </app-card>
+      <div class="overflow-x-auto p-4">
+        @if (dataLoaded()) {
+          <table class="text-sm border-separate border-spacing-y-2">
+            <thead>
+              <tr>
+                <th class="text-left px-2 font-medium text-xs text-muted-foreground">Class</th>
+                @for (review of reviews(); track review.id) {
+                  <th class="text-left px-2 font-medium text-xs text-muted-foreground">R{{ review.number }}</th>
+                }
+              </tr>
+            </thead>
+            <tbody>
+              @for (cls of classes(); track cls.id) {
+                <tr>
+                  <td class="px-2 py-1 font-medium whitespace-nowrap align-top">{{ cls.name }}</td>
+                  @for (review of reviews(); track review.id) {
+                    <td class="px-2 py-1 align-top">
+                      <div class="flex flex-col gap-1">
+                        @for (slot of SLOTS; track slot) {
+                          <select
+                            appSelect
+                            size="sm"
+                            class="text-xs w-36"
+                            (change)="setSlot(cls.id, review.id, slot, $any($event.target).value)"
+                          >
+                            <option value="" [selected]="slotValue(cls.id, review.id, slot) === ''">— Reviewer {{ slot + 1 }} —</option>
+                            @for (r of reviewers(); track r.id) {
+                              <option [value]="r.id" [selected]="r.id === slotValue(cls.id, review.id, slot)">{{ r.name }}</option>
+                            }
+                          </select>
+                        }
+                      </div>
+                    </td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+          @if (classes().length === 0) {
+            <p class="text-sm text-muted-foreground py-2">No classes yet.</p>
+          }
+        } @else {
+          <p class="text-sm text-muted-foreground py-2">Loading…</p>
+        }
+      </div>
+    </app-card>
+  </div>
 </div>

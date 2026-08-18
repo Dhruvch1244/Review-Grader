@@ -13,19 +13,15 @@
           appSelect
           size="sm"
           class="text-xs"
-          [value]="currentReviewerId() ?? ''"
           (change)="selectReviewer($any($event.target).value || null)"
         >
-          <option value="">Pick reviewer…</option>
+          <option value="" [selected]="!currentReviewerId()">Pick reviewer…</option>
           @for (r of reviewers(); track r.id) {
-            <option [value]="r.id">{{ r.name }}</option>
+            <option [value]="r.id" [selected]="r.id === currentReviewerId()">{{ r.name }}</option>
           }
         </select>
-        @if (currentReviewerId()) {
-          <label class="flex items-center gap-1 text-xs cursor-pointer">
-            <app-checkbox [checked]="isMyReview()" (checkedChange)="toggleMyReview($event)" />
-            On my panel
-          </label>
+        @if (currentReviewerId() && isAssigned()) {
+          <app-badge variant="outline" class="text-xs">On my panel</app-badge>
         }
         <app-badge variant="secondary" class="capitalize">{{ session()!.phase }}</app-badge>
       </div>

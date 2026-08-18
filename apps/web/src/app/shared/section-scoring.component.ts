@@ -2,6 +2,7 @@ import { Component, DestroyRef, computed, effect, inject, input, output, signal 
 import { NgTemplateOutlet } from '@angular/common';
 import { ApiClientService } from '../core/services/api-client.service';
 import type {
+  DirectScoreRow,
   GradeBand,
   ReviewDef,
   ReviewSectionDef,
@@ -26,13 +27,16 @@ function round2(n: number): number {
 }
 
 /**
- * Team-level scoring for one review: every section (technical/non-technical)
- * broken into reviewer-addable subtopics, each rated on the 4-band scale.
- * A section's score is the average band across its rated subtopics, scaled
- * to the section's max marks - see computeSectionScores server-side, which
- * this mirrors for instant optimistic feedback. Self-fetches both the
- * section/subtopic structure and the rating entries (and polls both) so it
- * stays in sync as other reviewers on the panel add subtopics or rate them.
+ * Team-level scoring for one review. Most sections break into pre-seeded
+ * subtopics, each rated on the 4-band scale - a section's score is the
+ * average band across its rated subtopics, scaled to the section's max
+ * marks (see computeSectionScores server-side, which this mirrors for
+ * instant optimistic feedback). Subtopics themselves are managed from the
+ * admin Reviews page, not here - reviewers just rate what's already there.
+ * A few sections (Component/Project Knowledge) skip subtopics entirely and
+ * take a plain typed-in number instead. Self-fetches the section structure
+ * and both kinds of rating entries (and polls both) so it stays in sync as
+ * other panelists score alongside.
  */
 @Component({
   selector: 'app-section-scoring',
@@ -61,7 +65,7 @@ export class SectionScoringComponent {
   loading = signal(true);
   sections = signal<SectionWithSubtopics[]>([]);
   entries = signal<SubtopicScoreRow[]>([]);
-  newSubtopicText = signal<Record<string, string>>({});
+  directEntries = signal<DirectScoreRow[]>([]);
 
   technicalSections = computed(() => this.sections().filter((s) => s.category === 'technical'));
   nonTechnicalSections = computed(() => this.sections().filter((s) => s.category === 'non_technical'));
@@ -85,7 +89,7 @@ export class SectionScoringComponent {
     );
 
     // Panels typically have 2-3 reviewers scoring at once - a short poll
-    // keeps subtopics and ratings visible to everyone without a full reload.
+    // keeps ratings visible to everyone without a full reload.
     const poll = setInterval(() => {
       this.fetchAll(this.teamId(), this.reviewId());
     }, POLL_INTERVAL_MS);
@@ -93,20 +97,43 @@ export class SectionScoringComponent {
   }
 
   private async fetchAll(teamId: string, reviewId: string) {
-    const [reviews, entries] = await Promise.all([
+    const [reviews, entries, directEntries] = await Promise.all([
       this.api.apiGet<ReviewWithSections[]>('/api/reviews'),
       this.api.apiGet<SubtopicScoreRow[]>(`/api/subtopic-scores?teamId=${teamId}&reviewId=${reviewId}`),
+      this.api.apiGet<DirectScoreRow[]>(`/api/direct-scores?teamId=${teamId}&reviewId=${reviewId}`),
     ]);
     if (teamId !== this.teamId() || reviewId !== this.reviewId()) return;
     const review = (reviews ?? []).find((r) => r.id === reviewId);
     this.sections.set(review?.sections ?? []);
     this.entries.set(entries ?? []);
-    this.sectionScoresChange.emit(this.computeSectionScores(this.sections(), this.entries()));
+    this.directEntries.set(directEntries ?? []);
+    this.sectionScoresChange.emit(this.computeSectionScores(this.sections(), this.entries(), this.directEntries()));
   }
 
-  private computeSectionScores(sections: SectionWithSubtopics[], entries: SubtopicScoreRow[]): SectionScoreRow[] {
+  private computeSectionScores(
+    sections: SectionWithSubtopics[],
+    entries: SubtopicScoreRow[],
+    directEntries: DirectScoreRow[]
+  ): SectionScoreRow[] {
     const students = this.students();
     const scoreFor = (section: SectionWithSubtopics, studentId: string | null): SectionScoreRow => {
+      if (section.scoreMode === 'direct') {
+        const own = directEntries.filter((e) => e.section_id === section.id && e.student_id === studentId);
+        const score =
+          own.length > 0
+            ? round2(Math.min(section.maxMarks, Math.max(0, own.reduce((sum, e) => sum + e.score, 0) / own.length)))
+            : null;
+        return {
+          sectionId: section.id,
+          teamId: this.teamId(),
+          studentId,
+          reviewId: this.reviewId(),
+          score,
+          maxMarks: section.maxMarks,
+          ratedSubtopics: own.length,
+          totalSubtopics: own.length,
+        };
+      }
       const avgBySubtopic = new Map<string, number>();
       for (const sub of section.subtopics) {
         const subEntries = entries.filter((e) => e.subtopic_id === sub.id && e.student_id === studentId);
@@ -137,7 +164,7 @@ export class SectionScoringComponent {
   }
 
   sectionScore(sectionId: string, studentId: string | null = null): SectionScoreRow | undefined {
-    return this.computeSectionScores(this.sections(), this.entries()).find(
+    return this.computeSectionScores(this.sections(), this.entries(), this.directEntries()).find(
       (s) => s.sectionId === sectionId && s.studentId === studentId
     );
   }
@@ -183,7 +210,7 @@ export class SectionScoringComponent {
           },
         ];
     this.entries.set(optimistic);
-    this.sectionScoresChange.emit(this.computeSectionScores(this.sections(), optimistic));
+    this.sectionScoresChange.emit(this.computeSectionScores(this.sections(), optimistic, this.directEntries()));
 
     const result = await this.api.apiWrite<{ entries: SubtopicScoreRow[]; sectionScores: SectionScoreRow[] }>(
       'PUT',
@@ -193,38 +220,58 @@ export class SectionScoringComponent {
     );
     if (result?.entries) {
       this.entries.set(result.entries);
-      this.sectionScoresChange.emit(this.computeSectionScores(this.sections(), result.entries));
+      this.sectionScoresChange.emit(this.computeSectionScores(this.sections(), result.entries, this.directEntries()));
     }
   }
 
-  subtopicDraft(sectionId: string): string {
-    return this.newSubtopicText()[sectionId] ?? '';
-  }
-
-  setSubtopicDraft(sectionId: string, value: string) {
-    this.newSubtopicText.set({ ...this.newSubtopicText(), [sectionId]: value });
-  }
-
-  async addSubtopic(sectionId: string) {
-    const label = this.subtopicDraft(sectionId).trim();
-    if (!label) return;
-    this.setSubtopicDraft(sectionId, '');
-    const subtopic = await this.api.apiWrite<SubtopicDef>('POST', '/api/subtopics', { sectionId, label });
-    if (subtopic?.id) {
-      this.sections.set(
-        this.sections().map((s) => (s.id === sectionId ? { ...s, subtopics: [...s.subtopics, subtopic] } : s))
-      );
-    }
-  }
-
-  async removeSubtopic(sectionId: string, subtopicId: string) {
-    this.sections.set(
-      this.sections().map((s) =>
-        s.id === sectionId ? { ...s, subtopics: s.subtopics.filter((sub) => sub.id !== subtopicId) } : s
-      )
+  /** This reviewer's own typed-in number for a 'direct' scoreMode section -
+   * null if they haven't entered one. */
+  myDirectScore(sectionId: string, studentId: string | null = null): number | null {
+    const reviewerId = this.currentReviewerId();
+    if (!reviewerId) return null;
+    return (
+      this.directEntries().find(
+        (e) => e.section_id === sectionId && e.reviewer_id === reviewerId && e.student_id === studentId
+      )?.score ?? null
     );
-    this.entries.set(this.entries().filter((e) => e.subtopic_id !== subtopicId));
-    await this.api.apiWrite('DELETE', `/api/subtopics/${subtopicId}`);
-    this.sectionScoresChange.emit(this.computeSectionScores(this.sections(), this.entries()));
+  }
+
+  async setDirectScore(sectionId: string, value: string, studentId: string | null = null) {
+    const reviewerId = this.currentReviewerId();
+    if (!reviewerId) return;
+    const trimmed = value.trim();
+    const score = trimmed === '' ? null : Number(trimmed);
+    if (score !== null && Number.isNaN(score)) return;
+
+    const withoutMine = this.directEntries().filter(
+      (e) => !(e.section_id === sectionId && e.reviewer_id === reviewerId && e.student_id === studentId)
+    );
+    const optimistic = score === null
+      ? withoutMine
+      : [
+          ...withoutMine,
+          {
+            id: `${sectionId}:${this.teamId()}:${studentId ?? 'team'}:${reviewerId}`,
+            section_id: sectionId,
+            team_id: this.teamId(),
+            student_id: studentId,
+            reviewer_id: reviewerId,
+            score,
+            updated_at: new Date().toISOString(),
+          },
+        ];
+    this.directEntries.set(optimistic);
+    this.sectionScoresChange.emit(this.computeSectionScores(this.sections(), this.entries(), optimistic));
+
+    const result = await this.api.apiWrite<{ entries: DirectScoreRow[]; sectionScores: SectionScoreRow[] }>(
+      'PUT',
+      '/api/direct-scores',
+      { sectionId, teamId: this.teamId(), studentId, reviewerId, score },
+      `direct-${sectionId}-${this.teamId()}-${studentId ?? 'team'}-${reviewerId}`
+    );
+    if (result?.entries) {
+      this.directEntries.set(result.entries);
+      this.sectionScoresChange.emit(this.computeSectionScores(this.sections(), this.entries(), result.entries));
+    }
   }
 }

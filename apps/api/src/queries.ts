@@ -11,8 +11,10 @@ import type {
   ReviewSectionDef,
   SectionCategory,
   SectionScope,
+  ScoreMode,
   SubtopicDef,
   SubtopicScoreRow,
+  DirectScoreRow,
   ReviewerRow,
   ReviewReviewerRow,
   SectionScoreRow,
@@ -129,6 +131,7 @@ export function deleteTeam(teamId: string): void {
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM students WHERE team_id = ?").run(teamId);
     db.prepare("DELETE FROM subtopic_scores WHERE team_id = ?").run(teamId);
+    db.prepare("DELETE FROM direct_scores WHERE team_id = ?").run(teamId);
     db.prepare("DELETE FROM review_sessions WHERE team_id = ?").run(teamId);
     db.prepare("DELETE FROM teams WHERE id = ?").run(teamId);
   });
@@ -157,6 +160,7 @@ export function deleteStudent(studentId: string): void {
   const db = getDb();
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM subtopic_scores WHERE student_id = ?").run(studentId);
+    db.prepare("DELETE FROM direct_scores WHERE student_id = ?").run(studentId);
     db.prepare("DELETE FROM students WHERE id = ?").run(studentId);
   });
   tx();
@@ -186,18 +190,35 @@ export function deleteReviewer(id: string): void {
   const db = getDb();
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM subtopic_scores WHERE reviewer_id = ?").run(id);
+    db.prepare("DELETE FROM direct_scores WHERE reviewer_id = ?").run(id);
     db.prepare("DELETE FROM review_reviewers WHERE reviewer_id = ?").run(id);
     db.prepare("DELETE FROM reviewers WHERE id = ?").run(id);
   });
   tx();
 }
 
-// ---- Per-(class, review) reviewer self-selection ----
+// ---- Per-(class, review) panel assignment (admin-assigned, 2 reviewers
+// per pair by convention - enforced by the admin UI's fixed 2-slot picker,
+// not by this table) ----
 
-export function listReviewReviewers(classId: string): ReviewReviewerRow[] {
+/** All assignment rows, optionally filtered to one class - the admin
+ * matrix fetches everything in one call to build its Classes x Reviews
+ * grid. */
+export function listReviewReviewers(classId?: string): ReviewReviewerRow[] {
+  const db = getDb();
+  if (classId) {
+    return db.prepare("SELECT * FROM review_reviewers WHERE class_id = ?").all(classId) as ReviewReviewerRow[];
+  }
+  return db.prepare("SELECT * FROM review_reviewers").all() as ReviewReviewerRow[];
+}
+
+/** One reviewer's own assignments across every class - what the
+ * reviewer-facing Scoring page filters down to once they identify
+ * themselves. */
+export function listReviewReviewersForReviewer(reviewerId: string): ReviewReviewerRow[] {
   return getDb()
-    .prepare("SELECT * FROM review_reviewers WHERE class_id = ?")
-    .all(classId) as ReviewReviewerRow[];
+    .prepare("SELECT * FROM review_reviewers WHERE reviewer_id = ?")
+    .all(reviewerId) as ReviewReviewerRow[];
 }
 
 export function setReviewReviewerMembership(
@@ -235,6 +256,7 @@ function getSectionsForReview(reviewId: string): SectionWithSubtopics[] {
     label: string;
     category: SectionCategory;
     scope: SectionScope;
+    score_mode: ScoreMode;
     max_marks: number;
     order_index: number;
   }[];
@@ -257,6 +279,7 @@ function getSectionsForReview(reviewId: string): SectionWithSubtopics[] {
     label: s.label,
     category: s.category,
     scope: s.scope,
+    scoreMode: s.score_mode,
     maxMarks: s.max_marks,
     order: s.order_index,
     subtopics: subtopics
@@ -319,10 +342,11 @@ export function addReviewSection(
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_|_$/g, "");
+  const scoreMode: ScoreMode = "subtopic";
   db.prepare(
-    "INSERT INTO review_sections (id, review_id, key, label, category, scope, max_marks, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-  ).run(id, reviewId, key, label, category, scope, maxMarks, order_index);
-  return { id, reviewId, key, label, category, scope, maxMarks, order: order_index };
+    "INSERT INTO review_sections (id, review_id, key, label, category, scope, score_mode, max_marks, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(id, reviewId, key, label, category, scope, scoreMode, maxMarks, order_index);
+  return { id, reviewId, key, label, category, scope, scoreMode, maxMarks, order: order_index };
 }
 
 /** Admin removes a section (and its subtopics/ratings) - e.g. a feature
@@ -335,6 +359,7 @@ export function deleteReviewSection(id: string): void {
       db.prepare("DELETE FROM subtopic_scores WHERE subtopic_id = ?").run(s.id);
     }
     db.prepare("DELETE FROM subtopics WHERE section_id = ?").run(id);
+    db.prepare("DELETE FROM direct_scores WHERE section_id = ?").run(id);
     db.prepare("DELETE FROM review_sections WHERE id = ?").run(id);
   });
   tx();
@@ -408,25 +433,69 @@ function scoreFromEntries(entries: SubtopicScoreRow[], subtopicIds: string[], ma
   return { score, ratedSubtopics, totalSubtopics: subtopicIds.length };
 }
 
+/** Raw per-reviewer direct-mode scores (no subtopics) for one team+review -
+ * used for own-entry editing and to compute 'direct' scoreMode section
+ * scores. */
+export function getDirectScoreEntries(teamId: string, reviewId: string): DirectScoreRow[] {
+  return getDb()
+    .prepare(
+      `SELECT ds.* FROM direct_scores ds
+       JOIN review_sections rs ON ds.section_id = rs.id
+       WHERE ds.team_id = ? AND rs.review_id = ?`
+    )
+    .all(teamId, reviewId) as DirectScoreRow[];
+}
+
+function directScoreFromEntries(entries: DirectScoreRow[], maxMarks: number): {
+  score: number | null;
+  ratedSubtopics: number;
+  totalSubtopics: number;
+} {
+  if (entries.length === 0) return { score: null, ratedSubtopics: 0, totalSubtopics: 0 };
+  const avg = entries.reduce((sum, e) => sum + e.score, 0) / entries.length;
+  return {
+    score: round2(Math.min(maxMarks, Math.max(0, avg))),
+    ratedSubtopics: entries.length,
+    totalSubtopics: entries.length,
+  };
+}
+
 /** Every section's computed score for one team+review: 'team' scope
  * sections get one row (studentId null); 'individual' scope sections get
- * one row per student in `studentIds`. Each score is the average band
- * across whichever subtopics have at least one rating (averaged across
- * reviewers first), scaled to the section's max_marks. `score` stays null
- * until at least one relevant subtopic has a rating. */
+ * one row per student in `studentIds`. 'subtopic' scoreMode sections score
+ * as the average band across whichever subtopics have at least one rating
+ * (averaged across reviewers first), scaled to max_marks. 'direct'
+ * scoreMode sections (Component/Project Knowledge) score as the plain
+ * average of whichever reviewers have typed a raw number. `score` stays
+ * null until something has been rated/entered. */
 export function computeSectionScores(teamId: string, reviewId: string, studentIds: string[]): SectionScoreRow[] {
   const sections = getSectionsForReview(reviewId);
-  const entries = getSubtopicScoreEntries(teamId, reviewId);
+  const subtopicEntries = getSubtopicScoreEntries(teamId, reviewId);
+  const directEntries = getDirectScoreEntries(teamId, reviewId);
   const rows: SectionScoreRow[] = [];
   for (const section of sections) {
+    if (section.scoreMode === "direct") {
+      if (section.scope === "team") {
+        const teamEntries = directEntries.filter((e) => e.section_id === section.id && e.student_id === null);
+        const { score, ratedSubtopics, totalSubtopics } = directScoreFromEntries(teamEntries, section.maxMarks);
+        rows.push({ sectionId: section.id, teamId, studentId: null, reviewId, score, maxMarks: section.maxMarks, ratedSubtopics, totalSubtopics });
+      } else {
+        for (const studentId of studentIds) {
+          const studentEntries = directEntries.filter((e) => e.section_id === section.id && e.student_id === studentId);
+          const { score, ratedSubtopics, totalSubtopics } = directScoreFromEntries(studentEntries, section.maxMarks);
+          rows.push({ sectionId: section.id, teamId, studentId, reviewId, score, maxMarks: section.maxMarks, ratedSubtopics, totalSubtopics });
+        }
+      }
+      continue;
+    }
     const subtopicIds = section.subtopics.map((s) => s.id);
     if (section.scope === "team") {
-      const teamEntries = entries.filter((e) => e.student_id === null);
+      const teamEntries = subtopicEntries.filter((e) => e.student_id === null);
       const { score, ratedSubtopics, totalSubtopics } = scoreFromEntries(teamEntries, subtopicIds, section.maxMarks);
       rows.push({ sectionId: section.id, teamId, studentId: null, reviewId, score, maxMarks: section.maxMarks, ratedSubtopics, totalSubtopics });
     } else {
       for (const studentId of studentIds) {
-        const studentEntries = entries.filter((e) => e.student_id === studentId);
+        const studentEntries = subtopicEntries.filter((e) => e.student_id === studentId);
         const { score, ratedSubtopics, totalSubtopics } = scoreFromEntries(studentEntries, subtopicIds, section.maxMarks);
         rows.push({ sectionId: section.id, teamId, studentId, reviewId, score, maxMarks: section.maxMarks, ratedSubtopics, totalSubtopics });
       }
@@ -513,6 +582,44 @@ export function upsertSubtopicScore(
   const students = db.prepare("SELECT id FROM students WHERE team_id = ?").all(teamId) as { id: string }[];
   const sectionScores = computeSectionScores(teamId, reviewId, students.map((s) => s.id)).filter(
     (s) => s.sectionId === subtopic?.section_id
+  );
+  return { entries, sectionScores };
+}
+
+/** Upserts ONE reviewer's own raw number for a 'direct' scoreMode section
+ * (Component/Project Knowledge), for one team (studentId null) or one
+ * specific student (individual-scope). Set score to null to clear this
+ * reviewer's entry. Clamped to [0, section.maxMarks]. Returns the raw
+ * entries plus every recomputed row for the section, mirroring
+ * upsertSubtopicScore's shape. */
+export function upsertDirectScore(
+  sectionId: string,
+  teamId: string,
+  studentId: string | null,
+  reviewerId: string,
+  score: number | null
+): { entries: DirectScoreRow[]; sectionScores: SectionScoreRow[] } {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const id = `${sectionId}:${teamId}:${studentId ?? "team"}:${reviewerId}`;
+  const section = db.prepare("SELECT review_id, max_marks FROM review_sections WHERE id = ?").get(sectionId) as
+    | { review_id: string; max_marks: number }
+    | undefined;
+  if (score === null) {
+    db.prepare("DELETE FROM direct_scores WHERE id = ?").run(id);
+  } else {
+    const clamped = Math.min(section?.max_marks ?? score, Math.max(0, score));
+    db.prepare(
+      `INSERT INTO direct_scores (id, section_id, team_id, student_id, reviewer_id, score, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET score = excluded.score, updated_at = excluded.updated_at`
+    ).run(id, sectionId, teamId, studentId, reviewerId, clamped, now);
+  }
+  const reviewId = section?.review_id ?? "";
+  const entries = getDirectScoreEntries(teamId, reviewId);
+  const students = db.prepare("SELECT id FROM students WHERE team_id = ?").all(teamId) as { id: string }[];
+  const sectionScores = computeSectionScores(teamId, reviewId, students.map((s) => s.id)).filter(
+    (s) => s.sectionId === sectionId
   );
   return { entries, sectionScores };
 }
@@ -644,6 +751,7 @@ export function resetTeamScoring(teamId: string): void {
   const db = getDb();
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM subtopic_scores WHERE team_id = ?").run(teamId);
+    db.prepare("DELETE FROM direct_scores WHERE team_id = ?").run(teamId);
     db.prepare("DELETE FROM review_sessions WHERE team_id = ?").run(teamId);
   });
   tx();
@@ -656,6 +764,7 @@ export function resetAllScoring(): void {
   const db = getDb();
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM subtopic_scores").run();
+    db.prepare("DELETE FROM direct_scores").run();
     db.prepare("DELETE FROM review_sessions").run();
   });
   tx();

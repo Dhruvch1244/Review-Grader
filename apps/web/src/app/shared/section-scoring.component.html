@@ -1,6 +1,6 @@
 <div class="space-y-4">
   @if (!currentReviewerId()) {
-    <p class="text-xs text-amber-600 dark:text-amber-500">Pick who's scoring above to rate subtopics.</p>
+    <p class="text-xs text-amber-600 dark:text-amber-500">Pick who's scoring above to rate sections.</p>
   }
 
   <div [class]="'grid gap-4 ' + (nonTechnicalSections().length > 0 ? 'lg:grid-cols-2' : '')">
@@ -37,36 +37,48 @@
       }
     </div>
 
-    @if (section.subtopics.length > 0) {
-      <div class="flex flex-wrap gap-1">
-        @for (sub of section.subtopics; track sub.id) {
-          <span class="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px]">
-            {{ sub.label }}
-            <button
-              type="button"
-              class="text-muted-foreground hover:text-destructive"
-              (click)="removeSubtopic(section.id, sub.id)"
-              title="Remove subtopic"
-            >
-              ×
-            </button>
-          </span>
-        }
-      </div>
-    }
-    <div class="flex gap-1.5">
-      <input
-        appInput
-        [value]="subtopicDraft(section.id)"
-        (input)="setSubtopicDraft(section.id, $any($event.target).value)"
-        (keydown.enter)="addSubtopic(section.id)"
-        placeholder="+ Add subtopic…"
-        class="h-6 text-xs"
-      />
-      <button appButton size="sm" class="h-6 text-xs shrink-0" (click)="addSubtopic(section.id)">Add</button>
-    </div>
-
-    @if (section.scope === 'team') {
+    @if (section.scoreMode === 'direct') {
+      @if (section.scope === 'team') {
+        <div class="flex items-center justify-between gap-2 text-xs">
+          <span class="text-muted-foreground">Your mark (out of {{ section.maxMarks }})</span>
+          <input
+            appInput
+            type="number"
+            min="0"
+            [max]="section.maxMarks"
+            step="0.5"
+            [value]="myDirectScore(section.id) ?? ''"
+            (change)="setDirectScore(section.id, $any($event.target).value)"
+            [disabled]="!currentReviewerId()"
+            class="h-7 text-xs w-20 text-right"
+          />
+        </div>
+      } @else {
+        <div class="space-y-1.5">
+          @for (student of students(); track student.id) {
+            <div class="flex items-center justify-between gap-2 text-xs">
+              <span class="flex-1">{{ student.name }}</span>
+              <div class="flex items-center gap-2 shrink-0">
+                <input
+                  appInput
+                  type="number"
+                  min="0"
+                  [max]="section.maxMarks"
+                  step="0.5"
+                  [value]="myDirectScore(section.id, student.id) ?? ''"
+                  (change)="setDirectScore(section.id, $any($event.target).value, student.id)"
+                  [disabled]="!currentReviewerId()"
+                  class="h-7 text-xs w-16 text-right"
+                />
+                <app-badge variant="outline" class="text-[10px]">
+                  {{ sectionScore(section.id, student.id)?.score ?? '—' }} / {{ section.maxMarks }}
+                </app-badge>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    } @else if (section.scope === 'team') {
       <div class="space-y-1.5">
         @for (sub of section.subtopics; track sub.id) {
           <div class="flex items-center justify-between gap-2 text-xs">
@@ -103,9 +115,6 @@
                 {{ sectionScore(section.id, student.id)?.score ?? '—' }} / {{ section.maxMarks }}
               </app-badge>
             </div>
-            @if (section.subtopics.length === 0) {
-              <p class="text-[11px] text-muted-foreground">Add a subtopic above to start rating.</p>
-            }
             @for (sub of section.subtopics; track sub.id) {
               <div class="flex items-center justify-between gap-2 text-xs">
                 <span class="flex-1">

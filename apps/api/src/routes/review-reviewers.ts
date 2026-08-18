@@ -1,13 +1,18 @@
 import { Router } from "express";
-import { listReviewReviewers, setReviewReviewerMembership } from "../queries";
+import { listReviewReviewers, listReviewReviewersForReviewer, setReviewReviewerMembership } from "../queries";
 
-// Which reviewers have opted in to score a given class's given review - a
-// reviewer can belong to multiple (class, review) pairs at once.
+// Which reviewers are assigned (by the admin) to score a given class's
+// given review - a reviewer can belong to multiple (class, review) pairs
+// at once. ?reviewerId= filters to one reviewer's own assignments across
+// every class (the reviewer-facing filtered view); ?classId= filters to
+// one class (used nowhere currently but kept for completeness); no query
+// params returns everything (the admin assignment matrix).
 export const reviewReviewersRouter = Router();
 
 reviewReviewersRouter.get("/", (req, res) => {
+  const reviewerId = req.query.reviewerId as string | undefined;
   const classId = req.query.classId as string | undefined;
-  if (!classId) return res.status(400).json({ error: "classId is required" });
+  if (reviewerId) return res.json(listReviewReviewersForReviewer(reviewerId));
   res.json(listReviewReviewers(classId));
 });
 

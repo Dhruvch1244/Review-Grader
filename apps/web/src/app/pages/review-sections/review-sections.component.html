@@ -3,8 +3,8 @@
     <div>
       <h1 class="text-2xl font-semibold tracking-tight">Reviews</h1>
       <p class="text-sm text-muted-foreground mt-1">
-        Edit each review's section labels and marks. Reviewers break sections into subtopics on the fly while
-        scoring - this page just controls the top-level structure and point values.
+        Edit each review's section labels, marks, and subtopics. Reviewers just rate what's already here - manage
+        the actual breakdown from this page.
       </p>
     </div>
     <button appButton (click)="save()" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save changes' }}</button>
@@ -17,48 +17,92 @@
           <app-card-title class="text-sm">R{{ review.number }}: {{ review.label }}</app-card-title>
           <app-badge variant="outline">{{ reviewMax(review) }} marks</app-badge>
         </app-card-header>
-        <app-card-content class="space-y-2.5">
+        <app-card-content class="space-y-3">
           @for (section of review.sections; track section.id) {
-            <div class="flex items-center gap-2">
-              <app-badge [variant]="section.category === 'technical' ? 'outline' : 'secondary'" class="shrink-0 text-[10px] w-24 justify-center">
-                {{ section.category === 'technical' ? 'Technical' : 'Non-Tech' }}
-              </app-badge>
-              <div class="flex-1 min-w-0">
-                <input
-                  appInput
-                  [value]="section.label"
-                  (input)="setLabel(review.id, section.id, $any($event.target).value)"
-                  class="h-8 text-sm w-full"
-                />
+            <div class="space-y-1.5 pb-2 border-b last:border-b-0">
+              <div class="flex items-center gap-2">
+                <app-badge [variant]="section.category === 'technical' ? 'outline' : 'secondary'" class="shrink-0 text-[10px] w-24 justify-center">
+                  {{ section.category === 'technical' ? 'Technical' : 'Non-Tech' }}
+                </app-badge>
+                <div class="flex-1 min-w-0">
+                  <input
+                    appInput
+                    [value]="section.label"
+                    (input)="setLabel(review.id, section.id, $any($event.target).value)"
+                    class="h-8 text-sm w-full"
+                  />
+                </div>
+                <div class="w-20 shrink-0">
+                  <input
+                    appInput
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    [value]="section.maxMarks"
+                    (input)="setMarks(review.id, section.id, $any($event.target).value)"
+                    class="h-8 text-sm w-full text-right"
+                  />
+                </div>
+                <button
+                  appButton
+                  variant="ghost"
+                  size="icon"
+                  class="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                  (click)="removeSection(section.id, section.label)"
+                  title="Remove section"
+                >
+                  ×
+                </button>
               </div>
-              <div class="w-20 shrink-0">
-                <input
-                  appInput
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  [value]="section.maxMarks"
-                  (input)="setMarks(review.id, section.id, $any($event.target).value)"
-                  class="h-8 text-sm w-full text-right"
-                />
+
+              <div class="flex items-center gap-1.5 pl-1">
+                <app-badge variant="outline" class="text-[10px] shrink-0">
+                  {{ section.scope === 'individual' ? 'Per-student' : 'Team' }}
+                </app-badge>
+                @if (section.scoreMode === 'direct') {
+                  <app-badge variant="outline" class="text-[10px] shrink-0">Direct number entry</app-badge>
+                } @else {
+                  <div class="flex flex-wrap gap-1">
+                    @for (sub of section.subtopics; track sub.id) {
+                      <span class="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px]">
+                        {{ sub.label }}
+                        <button
+                          type="button"
+                          class="text-muted-foreground hover:text-destructive"
+                          (click)="removeSubtopic(review.id, section.id, sub.id)"
+                          title="Remove subtopic"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    }
+                  </div>
+                }
               </div>
-              <button
-                appButton
-                variant="ghost"
-                size="icon"
-                class="size-8 shrink-0 text-muted-foreground hover:text-destructive"
-                (click)="removeSection(section.id, section.label)"
-                title="Remove section"
-              >
-                ×
-              </button>
+              @if (section.scoreMode !== 'direct') {
+                <div class="flex gap-1.5 pl-1">
+                  <input
+                    appInput
+                    [value]="subtopicDraft(section.id)"
+                    (input)="setSubtopicDraft(section.id, $any($event.target).value)"
+                    (keydown.enter)="addSubtopic(review.id, section.id)"
+                    placeholder="+ Add subtopic…"
+                    class="h-6 text-xs flex-1"
+                  />
+                  <button appButton size="sm" class="h-6 text-xs shrink-0" (click)="addSubtopic(review.id, section.id)">Add</button>
+                </div>
+              }
             </div>
           }
 
           <div class="flex items-center gap-2 pt-2 border-t">
-            <select appSelect size="sm" class="w-28 shrink-0 text-[10px]" [value]="newCategory(review.id)" (change)="setNewCategory(review.id, $any($event.target).value)">
+            <select appSelect size="sm" class="w-24 shrink-0 text-[10px]" [value]="newCategory(review.id)" (change)="setNewCategory(review.id, $any($event.target).value)">
               <option value="technical">Technical</option>
               <option value="non_technical">Non-Tech</option>
+            </select>
+            <select appSelect size="sm" class="w-24 shrink-0 text-[10px]" [value]="newScope(review.id)" (change)="setNewScope(review.id, $any($event.target).value)">
+              <option value="team">Team</option>
+              <option value="individual">Per-student</option>
             </select>
             <div class="flex-1 min-w-0">
               <input

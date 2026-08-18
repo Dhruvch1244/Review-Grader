@@ -1,7 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { ToastService } from '../../ui/toast.service';
-import type { ReviewDef, ReviewSectionDef, SectionCategory, SubtopicDef } from '../../core/models/types';
+import type { ReviewDef, ReviewSectionDef, SectionCategory, SectionScope, SubtopicDef } from '../../core/models/types';
 import { CardComponent, CardContentComponent, CardHeaderComponent, CardTitleComponent } from '../../ui/card.component';
 import { BadgeComponent } from '../../ui/badge.component';
 import { ButtonComponent } from '../../ui/button.component';
@@ -35,6 +35,8 @@ export class ReviewSectionsComponent {
   newSectionLabel = signal<Record<string, string>>({});
   newSectionMarks = signal<Record<string, string>>({});
   newSectionCategory = signal<Record<string, SectionCategory>>({});
+  newSectionScope = signal<Record<string, SectionScope>>({});
+  newSubtopicText = signal<Record<string, string>>({});
 
   constructor() {
     this.refresh();
@@ -97,18 +99,26 @@ export class ReviewSectionsComponent {
   setNewCategory(reviewId: string, value: string) {
     this.newSectionCategory.set({ ...this.newSectionCategory(), [reviewId]: value as SectionCategory });
   }
+  newScope(reviewId: string): SectionScope {
+    return this.newSectionScope()[reviewId] ?? 'team';
+  }
+  setNewScope(reviewId: string, value: string) {
+    this.newSectionScope.set({ ...this.newSectionScope(), [reviewId]: value as SectionScope });
+  }
 
   async addSection(reviewId: string) {
     const label = this.newLabel(reviewId).trim();
     const maxMarks = Number(this.newMarks(reviewId));
     if (!label || Number.isNaN(maxMarks) || maxMarks <= 0) return;
     const category = this.newCategory(reviewId);
+    const scope = this.newScope(reviewId);
     this.setNewLabel(reviewId, '');
     this.setNewMarks(reviewId, '');
     const updated = await this.api.apiWrite<ReviewWithSections[]>('POST', '/api/reviews/sections', {
       reviewId,
       label,
       category,
+      scope,
       maxMarks,
     });
     if (Array.isArray(updated)) this.reviews.set(updated);
@@ -119,5 +129,44 @@ export class ReviewSectionsComponent {
     if (!window.confirm(`Remove "${label}"? Any subtopics and ratings under it are removed too.`)) return;
     const updated = await this.api.apiWrite<ReviewWithSections[]>('DELETE', `/api/reviews/sections/${sectionId}`);
     if (Array.isArray(updated)) this.reviews.set(updated);
+  }
+
+  subtopicDraft(sectionId: string): string {
+    return this.newSubtopicText()[sectionId] ?? '';
+  }
+  setSubtopicDraft(sectionId: string, value: string) {
+    this.newSubtopicText.set({ ...this.newSubtopicText(), [sectionId]: value });
+  }
+
+  async addSubtopic(reviewId: string, sectionId: string) {
+    const label = this.subtopicDraft(sectionId).trim();
+    if (!label) return;
+    this.setSubtopicDraft(sectionId, '');
+    const subtopic = await this.api.apiWrite<SubtopicDef>('POST', '/api/subtopics', { sectionId, label });
+    if (subtopic?.id) {
+      this.reviews.set(
+        this.reviews().map((r) =>
+          r.id !== reviewId
+            ? r
+            : { ...r, sections: r.sections.map((s) => (s.id === sectionId ? { ...s, subtopics: [...s.subtopics, subtopic] } : s)) }
+        )
+      );
+    }
+  }
+
+  async removeSubtopic(reviewId: string, sectionId: string, subtopicId: string) {
+    this.reviews.set(
+      this.reviews().map((r) =>
+        r.id !== reviewId
+          ? r
+          : {
+              ...r,
+              sections: r.sections.map((s) =>
+                s.id === sectionId ? { ...s, subtopics: s.subtopics.filter((sub) => sub.id !== subtopicId) } : s
+              ),
+            }
+      )
+    );
+    await this.api.apiWrite('DELETE', `/api/subtopics/${subtopicId}`);
   }
 }

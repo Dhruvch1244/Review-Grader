@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import { randomUUID } from "crypto";
-import { REVIEWS, REVIEW_SECTIONS } from "./trading-system-seed";
+import { REVIEWS, REVIEW_SECTIONS, DEFAULT_SUBTOPICS } from "./trading-system-seed";
 import { generateIndianNames } from "./indian-names";
 
 const DEFAULT_CLASS_COUNT = 6;
@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS review_sections (
   label TEXT NOT NULL,
   category TEXT NOT NULL, -- 'technical' | 'non_technical'
   scope TEXT NOT NULL DEFAULT 'team', -- 'team' | 'individual'
+  score_mode TEXT NOT NULL DEFAULT 'subtopic', -- 'subtopic' | 'direct'
   max_marks REAL NOT NULL,
   order_index INTEGER NOT NULL
 );
@@ -94,6 +95,20 @@ CREATE TABLE IF NOT EXISTS subtopic_scores (
   student_id TEXT REFERENCES students(id),
   reviewer_id TEXT NOT NULL,
   band TEXT NOT NULL, -- 'below' | 'partial' | 'meets' | 'exceeds' (1-4)
+  updated_at TEXT NOT NULL
+);
+
+-- One reviewer's own raw number (0..max_marks) for a 'direct' score_mode
+-- section (e.g. Component/Project Knowledge) - no subtopic breakdown, just
+-- a mark. Averaged across whichever reviewers have entered one, same
+-- team/student-scope split and composite-id pattern as subtopic_scores.
+CREATE TABLE IF NOT EXISTS direct_scores (
+  id TEXT PRIMARY KEY,
+  section_id TEXT NOT NULL REFERENCES review_sections(id),
+  team_id TEXT NOT NULL REFERENCES teams(id),
+  student_id TEXT REFERENCES students(id),
+  reviewer_id TEXT NOT NULL,
+  score REAL NOT NULL,
   updated_at TEXT NOT NULL
 );
 
@@ -134,12 +149,23 @@ function seedReviewSections(db: Database.Database) {
     "INSERT INTO reviews (id, number, label, sprint_range) VALUES (?, ?, ?, ?)"
   );
   const insertSection = db.prepare(
-    "INSERT INTO review_sections (id, review_id, key, label, category, scope, max_marks, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO review_sections (id, review_id, key, label, category, scope, score_mode, max_marks, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
   );
+  const insertSubtopic = db.prepare(
+    "INSERT INTO subtopics (id, section_id, label, order_index, created_at) VALUES (?, ?, ?, ?, ?)"
+  );
+  const now = new Date().toISOString();
   const tx = db.transaction(() => {
     for (const r of REVIEWS) insertReview.run(r.id, r.number, r.label, r.sprintRange);
     for (const s of REVIEW_SECTIONS) {
-      insertSection.run(s.id, s.reviewId, s.key, s.label, s.category, s.scope, s.maxMarks, s.order);
+      const scoreMode = s.scoreMode ?? "subtopic";
+      insertSection.run(s.id, s.reviewId, s.key, s.label, s.category, s.scope, scoreMode, s.maxMarks, s.order);
+      if (scoreMode === "subtopic") {
+        const defaults = DEFAULT_SUBTOPICS[s.key] ?? [];
+        defaults.forEach((label, i) => {
+          insertSubtopic.run(randomUUID(), s.id, label, i, now);
+        });
+      }
     }
   });
   tx();

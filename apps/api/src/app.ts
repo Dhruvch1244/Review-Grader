@@ -11,6 +11,7 @@ import { reviewersRouter } from "./routes/reviewers";
 import { reviewReviewersRouter } from "./routes/review-reviewers";
 import { subtopicsRouter } from "./routes/subtopics";
 import { subtopicScoresRouter } from "./routes/subtopic-scores";
+import { directScoresRouter } from "./routes/direct-scores";
 import { weakTopicsRouter } from "./routes/weak-topics";
 import { reviewSessionsRouter } from "./routes/review-sessions";
 import { reviewsRouter } from "./routes/reviews";
@@ -39,6 +40,7 @@ export function createApp() {
   app.use("/api/review-reviewers", reviewReviewersRouter);
   app.use("/api/subtopics", subtopicsRouter);
   app.use("/api/subtopic-scores", subtopicScoresRouter);
+  app.use("/api/direct-scores", directScoresRouter);
   app.use("/api/weak-topics", weakTopicsRouter);
   app.use("/api/review-sessions", reviewSessionsRouter);
   app.use("/api/reviews", reviewsRouter);

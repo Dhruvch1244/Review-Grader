@@ -2,6 +2,7 @@ import { Component, computed, effect, inject, input, signal } from '@angular/cor
 import { RouterLink } from '@angular/router';
 import { LucidePlayCircle, LucideRotateCcw } from '@lucide/angular';
 import { ApiClientService } from '../../core/services/api-client.service';
+import { RoleService } from '../../core/services/role.service';
 import { ToastService } from '../../ui/toast.service';
 import type {
   ClassData,
@@ -16,7 +17,6 @@ import { ButtonComponent } from '../../ui/button.component';
 import { CardComponent, CardContentComponent, CardHeaderComponent, CardTitleComponent } from '../../ui/card.component';
 import { BadgeComponent } from '../../ui/badge.component';
 import { SelectDirective } from '../../ui/select.directive';
-import { CheckboxComponent } from '../../ui/checkbox.component';
 import { SectionScoringComponent } from '../../shared/section-scoring.component';
 import { WeakTopicsComponent } from '../../shared/weak-topics.component';
 
@@ -34,7 +34,6 @@ type ReviewWithSections = ReviewDef & { sections: ReviewSectionDef[] };
     CardTitleComponent,
     BadgeComponent,
     SelectDirective,
-    CheckboxComponent,
     SectionScoringComponent,
     WeakTopicsComponent,
     LucidePlayCircle,
@@ -45,18 +44,28 @@ type ReviewWithSections = ReviewDef & { sections: ReviewSectionDef[] };
 export class ScoreComponent {
   private api = inject(ApiClientService);
   private toast = inject(ToastService);
+  role = inject(RoleService);
 
   classId = input.required<string>();
 
   classData = signal<ClassData | null>(null);
   reviews = signal<ReviewWithSections[]>([]);
   reviewers = signal<ReviewerRow[]>([]);
-  myMemberships = signal<Set<string>>(new Set());
+  /** Which reviews an admin has assigned the current reviewer to, for this
+   * class - drives which review tabs a 'reviewer'-role user sees. Admins
+   * always see every review regardless of assignment. */
+  myAssignedReviewIds = signal<Set<string>>(new Set());
   reviewId = signal<string>('r1');
   teamId = signal<string | null>(null);
   resetNonce = signal(0);
   currentReviewerId = signal<string | null>(null);
   currentSectionScores = signal<SectionScoreRow[]>([]);
+
+  visibleReviews = computed(() =>
+    this.role.role() === 'reviewer'
+      ? this.reviews().filter((r) => this.myAssignedReviewIds().has(r.id))
+      : this.reviews()
+  );
 
   review = computed(() => this.reviews().find((r) => r.id === this.reviewId()));
   team = computed(() => this.classData()?.teams.find((t) => t.id === this.teamId()) ?? null);
@@ -110,7 +119,7 @@ export class ScoreComponent {
     effect(
       () => {
         const classId = this.classId();
-        this.currentReviewerId.set(getStoredReviewerId(classId));
+        this.currentReviewerId.set(getStoredReviewerId());
         this.api.apiGet<ClassData>(`/api/classes/${classId}`).then((data) => {
           if (data) {
             this.classData.set(data);
@@ -119,19 +128,32 @@ export class ScoreComponent {
         });
         this.api.apiGet<ReviewWithSections[]>('/api/reviews').then((r) => this.reviews.set(r ?? []));
         this.api.apiGet<ReviewerRow[]>('/api/reviewers').then((r) => this.reviewers.set(r ?? []));
-        this.refreshMemberships(classId, this.currentReviewerId());
+        this.refreshAssignments(classId, this.currentReviewerId());
+      },
+      { allowSignalWrites: true }
+    );
+
+    // Reviewers only ever see their assigned reviews - if the currently
+    // selected tab isn't one of them (e.g. the default 'r1'), jump to the
+    // first one that is.
+    effect(
+      () => {
+        const visible = this.visibleReviews();
+        if (this.role.role() === 'reviewer' && visible.length > 0 && !visible.some((r) => r.id === this.reviewId())) {
+          this.reviewId.set(visible[0].id);
+        }
       },
       { allowSignalWrites: true }
     );
   }
 
-  private async refreshMemberships(classId: string, reviewerId: string | null) {
+  private async refreshAssignments(classId: string, reviewerId: string | null) {
     if (!reviewerId) {
-      this.myMemberships.set(new Set());
+      this.myAssignedReviewIds.set(new Set());
       return;
     }
     const rows = await this.api.apiGet<ReviewReviewerRow[]>(`/api/review-reviewers?classId=${classId}`);
-    this.myMemberships.set(new Set((rows ?? []).filter((r) => r.reviewer_id === reviewerId).map((r) => r.review_id)));
+    this.myAssignedReviewIds.set(new Set((rows ?? []).filter((r) => r.reviewer_id === reviewerId).map((r) => r.review_id)));
   }
 
   selectReview(id: string) {
@@ -143,28 +165,9 @@ export class ScoreComponent {
   }
 
   selectReviewer(id: string | null) {
-    setStoredReviewerId(this.classId(), id);
+    setStoredReviewerId(id);
     this.currentReviewerId.set(id);
-    this.refreshMemberships(this.classId(), id);
-  }
-
-  isMyReview(reviewId: string): boolean {
-    return this.myMemberships().has(reviewId);
-  }
-
-  async toggleMyReview(reviewId: string, member: boolean) {
-    const reviewerId = this.currentReviewerId();
-    if (!reviewerId) return;
-    const next = new Set(this.myMemberships());
-    if (member) next.add(reviewId);
-    else next.delete(reviewId);
-    this.myMemberships.set(next);
-    await this.api.apiWrite('PUT', '/api/review-reviewers', {
-      classId: this.classId(),
-      reviewId,
-      reviewerId,
-      member,
-    });
+    this.refreshAssignments(this.classId(), id);
   }
 
   onSectionScoresChange(scores: SectionScoreRow[]) {

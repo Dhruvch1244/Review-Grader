@@ -17,7 +17,6 @@ import { CardComponent, CardContentComponent, CardHeaderComponent, CardTitleComp
 import { BadgeComponent } from '../../ui/badge.component';
 import { ProgressComponent } from '../../ui/progress.component';
 import { SelectDirective } from '../../ui/select.directive';
-import { CheckboxComponent } from '../../ui/checkbox.component';
 import { SectionScoringComponent } from '../../shared/section-scoring.component';
 import { WeakTopicsComponent } from '../../shared/weak-topics.component';
 
@@ -36,7 +35,6 @@ type ReviewWithSections = ReviewDef & { sections: ReviewSectionDef[] };
     BadgeComponent,
     ProgressComponent,
     SelectDirective,
-    CheckboxComponent,
     SectionScoringComponent,
     WeakTopicsComponent,
   ],
@@ -56,7 +54,10 @@ export class ReviewComponent {
   session = signal<ReviewSessionRow | null>(null);
   now = signal(Date.now());
   currentReviewerId = signal<string | null>(null);
-  isMyReview = signal(false);
+  /** Whether an admin has assigned the current reviewer to this specific
+   * (class, review) pair - shown as a read-only badge, not toggleable
+   * here. */
+  isAssigned = signal(false);
   currentSectionScores = signal<SectionScoreRow[]>([]);
 
   private autoAdvanced = false;
@@ -119,7 +120,7 @@ export class ReviewComponent {
         const classId = this.classId();
         const reviewId = this.reviewId();
         const teamId = this.teamId();
-        this.currentReviewerId.set(getStoredReviewerId(classId));
+        this.currentReviewerId.set(getStoredReviewerId());
         this.api.apiGet<ClassData>(`/api/classes/${classId}`).then((d) => {
           if (d) this.classData.set(d);
         });
@@ -130,7 +131,7 @@ export class ReviewComponent {
           .then((s) => {
             if (s) this.session.set(s);
           });
-        this.refreshMembership(classId, reviewId, this.currentReviewerId());
+        this.refreshAssignment(classId, reviewId, this.currentReviewerId());
       },
       { allowSignalWrites: true }
     );
@@ -154,31 +155,19 @@ export class ReviewComponent {
     }, { allowSignalWrites: true });
   }
 
-  private async refreshMembership(classId: string, reviewId: string, reviewerId: string | null) {
+  private async refreshAssignment(classId: string, reviewId: string, reviewerId: string | null) {
     if (!reviewerId) {
-      this.isMyReview.set(false);
+      this.isAssigned.set(false);
       return;
     }
     const rows = await this.api.apiGet<ReviewReviewerRow[]>(`/api/review-reviewers?classId=${classId}`);
-    this.isMyReview.set((rows ?? []).some((r) => r.reviewer_id === reviewerId && r.review_id === reviewId));
+    this.isAssigned.set((rows ?? []).some((r) => r.reviewer_id === reviewerId && r.review_id === reviewId));
   }
 
   selectReviewer(id: string | null) {
-    setStoredReviewerId(this.classId(), id);
+    setStoredReviewerId(id);
     this.currentReviewerId.set(id);
-    this.refreshMembership(this.classId(), this.reviewId(), id);
-  }
-
-  async toggleMyReview(member: boolean) {
-    const reviewerId = this.currentReviewerId();
-    if (!reviewerId) return;
-    this.isMyReview.set(member);
-    await this.api.apiWrite('PUT', '/api/review-reviewers', {
-      classId: this.classId(),
-      reviewId: this.reviewId(),
-      reviewerId,
-      member,
-    });
+    this.refreshAssignment(this.classId(), this.reviewId(), id);
   }
 
   onSectionScoresChange(scores: SectionScoreRow[]) {

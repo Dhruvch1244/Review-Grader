@@ -5,6 +5,13 @@ export type SectionCategory = "technical" | "non_technical";
  * Presentation) are scored separately per student on the team. */
 export type SectionScope = "team" | "individual";
 
+/** 'subtopic' sections break down into reviewer-addable subtopics rated on
+ * the 4-band scale, averaged and scaled to maxMarks (the default for most
+ * sections). 'direct' sections (Component Knowledge, Project Knowledge)
+ * skip subtopics entirely - each reviewer just types a raw number 0..
+ * maxMarks, averaged across reviewers. */
+export type ScoreMode = "subtopic" | "direct";
+
 export interface ReviewDef {
   id: string;
   number: number;
@@ -13,7 +20,8 @@ export interface ReviewDef {
 }
 
 /** A marks-based section of a review (e.g. "Database Design and Modeling" -
- * 10 marks). Admin-editable label/marks; scored indirectly via subtopics. */
+ * 10 marks). Admin-editable label/marks; scored indirectly via subtopics
+ * (or directly, for 'direct' scoreMode sections). */
 export interface ReviewSectionDef {
   id: string;
   reviewId: string;
@@ -21,6 +29,7 @@ export interface ReviewSectionDef {
   label: string;
   category: SectionCategory;
   scope: SectionScope;
+  scoreMode: ScoreMode;
   maxMarks: number;
   order: number;
 }
@@ -59,6 +68,20 @@ export interface SubtopicScoreRow {
   student_id: string | null;
   reviewer_id: string;
   band: GradeBand;
+  updated_at: string;
+}
+
+/** One reviewer's own raw number (0..maxMarks) for a 'direct' scoreMode
+ * section - no subtopic breakdown, just a mark. Same team/student-scope
+ * split as SubtopicScoreRow; averaged across whichever reviewers have
+ * entered one. */
+export interface DirectScoreRow {
+  id: string;
+  section_id: string;
+  team_id: string;
+  student_id: string | null;
+  reviewer_id: string;
+  score: number;
   updated_at: string;
 }
 
